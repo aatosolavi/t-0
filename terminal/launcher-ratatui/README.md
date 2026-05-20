@@ -31,9 +31,9 @@ Set `GROK_TERMINAL_USE_LAUNCHER=0` to force the old shell-first behavior.
 - `esc`: clear filter, or close launcher when filter is empty
 - `up/down`: choose workspace
 - `tab` or `left/right`: choose app
-- `1`: Shell
+- `1`: Grok Build
 - `2`: Codex
-- `3`: Grok Build
+- `3`: Shell
 - `enter`: open
 - mouse wheel: move through workspaces
 - click an app name: choose app

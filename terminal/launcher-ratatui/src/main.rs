@@ -50,7 +50,7 @@ enum Action {
 
 impl Action {
     fn all() -> [Action; 3] {
-        [Action::Shell, Action::Codex, Action::Grok]
+        [Action::Grok, Action::Codex, Action::Shell]
     }
 
     fn label(self) -> &'static str {
@@ -93,7 +93,7 @@ impl App {
             repos,
             visible_repos,
             selected_visible: 0,
-            selected_action: Action::Codex,
+            selected_action: Action::Grok,
             filter: String::new(),
             offset: 0,
             hitboxes: UiHitboxes::default(),
@@ -121,17 +121,17 @@ impl App {
 
     fn select_next_action(&mut self) {
         self.selected_action = match self.selected_action {
-            Action::Shell => Action::Codex,
-            Action::Codex => Action::Grok,
-            Action::Grok => Action::Shell,
+            Action::Grok => Action::Codex,
+            Action::Codex => Action::Shell,
+            Action::Shell => Action::Grok,
         };
     }
 
     fn select_previous_action(&mut self) {
         self.selected_action = match self.selected_action {
-            Action::Shell => Action::Grok,
-            Action::Codex => Action::Shell,
-            Action::Grok => Action::Codex,
+            Action::Grok => Action::Shell,
+            Action::Codex => Action::Grok,
+            Action::Shell => Action::Codex,
         };
     }
 
@@ -240,9 +240,9 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 KeyCode::Up => app.select_previous_repo(),
                 KeyCode::Right | KeyCode::Tab => app.select_next_action(),
                 KeyCode::Left | KeyCode::BackTab => app.select_previous_action(),
-                KeyCode::Char('1') => app.selected_action = Action::Shell,
+                KeyCode::Char('1') => app.selected_action = Action::Grok,
                 KeyCode::Char('2') => app.selected_action = Action::Codex,
-                KeyCode::Char('3') => app.selected_action = Action::Grok,
+                KeyCode::Char('3') => app.selected_action = Action::Shell,
                 KeyCode::Char(value) => app.push_filter_char(value),
                 _ => {}
             },
