@@ -17,49 +17,77 @@
  *   - Load the extension/ folder (or point chrome_url_overrides.newtab at a redirector)
  *   - Or simply use this URL as your new-tab page.
  *
- * This is the "first version" concrete experience while the richer ACP dashboard
- * lives on the main branch.
+ * IMPORTANT: The actual PTY handling lives in terminal/pty-server.mjs, which
+ * runs under Node because @lydell/node-pty has unstable fd behavior under Bun
+ * on macOS.
+ *
+ * This Bun file only serves the HTML page on :4321.
+ * The browser then connects to the real PTY broker on :4322.
  */
 
-import pty from "node-pty";
-import type { IPty } from "node-pty";
-import { readFileSync } from "fs";
-import { resolve } from "path";
+import { mkdirSync, readFileSync } from "fs";
+import { homedir } from "os";
+import { join, resolve } from "path";
 
 const PORT = Number(process.env.PORT || 4321);
-const SHELL = process.env.SHELL || (process.platform === "win32" ? "powershell.exe" : "/bin/zsh");
 
-let htmlContent: string;
-try {
-  htmlContent = readFileSync(resolve(import.meta.dir, "index.html"), "utf8");
-} catch {
-  htmlContent = "<h1>Grok Terminal</h1><p>index.html not found next to server.ts</p>";
+// For fast iteration during testing we re-read the HTML on every request.
+// (Cheap on localhost. We can cache later.)
+function getHtml(): string {
+  try {
+    return readFileSync(resolve(import.meta.dir, "index.html"), "utf8");
+  } catch {
+    return "<h1>Grok Terminal</h1><p>index.html not found next to server.ts</p>";
+  }
 }
 
-interface ResizeMessage {
-  type: "resize";
-  cols: number;
-  rows: number;
+function sanitizeFileName(name: string): string {
+  const cleaned = name
+    .normalize("NFKD")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return cleaned || "attachment";
+}
+
+function attachmentDir(): string {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const random = crypto.randomUUID().slice(0, 8);
+  const dir = join(homedir(), ".grok-mission-control", "attachments", `${stamp}-${random}`);
+  mkdirSync(dir, { recursive: true });
+  return dir;
 }
 
 const server = Bun.serve({
   port: PORT,
 
-  async fetch(req: Request, server: any) {
+  async fetch(req: Request) {
     const url = new URL(req.url);
 
-    // WebSocket upgrade for the PTY
-    if (url.pathname === "/ws") {
-      const upgraded = server.upgrade(req, {
-        data: { createdAt: Date.now() },
-      });
-      if (upgraded) return undefined;
-      return new Response("WebSocket upgrade failed", { status: 400 });
+    if (url.pathname === "/attachments" && req.method === "POST") {
+      const form = await req.formData();
+      const files = form
+        .getAll("files")
+        .filter((item): item is File => item instanceof File);
+
+      if (files.length === 0) {
+        return Response.json({ error: "No files uploaded" }, { status: 400 });
+      }
+
+      const dir = attachmentDir();
+      const paths: string[] = [];
+
+      for (const file of files) {
+        const path = join(dir, sanitizeFileName(file.name));
+        await Bun.write(path, file);
+        paths.push(path);
+      }
+
+      return Response.json({ paths });
     }
 
     // Everything else → the beautiful full-page terminal
-    // We could add cache headers etc., but for local dev this is perfect.
-    return new Response(htmlContent, {
+    // Fresh read so you can edit index.html and just reload the tab during testing.
+    return new Response(getHtml(), {
       headers: {
         "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -67,97 +95,14 @@ const server = Bun.serve({
     });
   },
 
-  websocket: {
-    async open(ws: any) {
-      // Spawn a real PTY shell for this connection
-      const cols = 80;
-      const rows = 24;
-
-      const ptyProcess: IPty = pty.spawn(SHELL, [], {
-        name: "xterm-256color",
-        cols,
-        rows,
-        cwd: process.env.HOME || process.cwd(),
-        env: {
-          ...process.env,
-          TERM: "xterm-256color",
-          COLORTERM: "truecolor",
-          // Make many CLIs behave nicely inside the web terminal
-          FORCE_COLOR: "1",
-        },
-        // Important on macOS: use the user's login shell behavior
-        useConpty: false,
-      });
-
-      // Store the pty on the websocket for later
-      ws.pty = ptyProcess;
-      ws.isAlive = true;
-
-      // Stream PTY output → browser
-      ptyProcess.onData((data: string) => {
-        if (ws.readyState === 1) {
-          ws.send(data);
-        }
-      });
-
-      ptyProcess.onExit(({ exitCode, signal }) => {
-        if (ws.readyState === 1) {
-          ws.send(`\r\n\r\n[process exited${signal ? ` (signal ${signal})` : ""} — code ${exitCode}]\r\n`);
-          ws.close();
-        }
-      });
-
-      // Friendly banner
-      ws.send(`\r\n\x1b[38;5;10mGrok Terminal\x1b[0m — real local ${SHELL.split("/").pop()} PTY\r\n`);
-      ws.send(`Connected at ${new Date().toLocaleTimeString()} • resize works automatically\r\n\r\n`);
-    },
-
-    message(ws: any, message: string | Buffer) {
-      const ptyProcess: IPty | undefined = ws.pty;
-      if (!ptyProcess) return;
-
-      // Control messages (resize) are sent as JSON
-      const text = message.toString();
-
-      if (text.startsWith("{")) {
-        try {
-          const msg = JSON.parse(text) as ResizeMessage;
-          if (msg.type === "resize" && typeof msg.cols === "number" && typeof msg.rows === "number") {
-            ptyProcess.resize(Math.max(1, msg.cols), Math.max(1, msg.rows));
-            return;
-          }
-        } catch {
-          // fall through and treat as raw data (unlikely)
-        }
-      }
-
-      // Normal user keystrokes / paste → real PTY
-      ptyProcess.write(text);
-    },
-
-    close(ws: any) {
-      const ptyProcess: IPty | undefined = ws.pty;
-      if (ptyProcess) {
-        try {
-          ptyProcess.kill();
-        } catch {
-          // already dead
-        }
-      }
-    },
-  },
 });
 
 console.log("");
-console.log("🚀  Grok Terminal (Level-1 MVP) ready");
-console.log(`    http://localhost:${PORT}`);
+console.log("🚀  Grok Terminal HTML server ready (Bun)");
+console.log(`    Open http://localhost:${PORT} in Helium`);
 console.log("");
-console.log("   • This browser tab is now a real local shell (zsh/bash + full PTY).");
-console.log("   • Works great as a Helium new-tab page or any browser Cmd+T target.");
-console.log("   • Later: embed the same xterm component inside the mission-control dashboard");
-console.log("     (one pane per agent thread, or a “raw terminal” view of a GrokBuild session).");
-console.log("");
-console.log("   Press Ctrl+C inside the terminal as usual. The shell is real.");
+console.log("   The real PTY lives in a separate Node process (terminal/pty-server.mjs on :4322).");
+console.log("   Run `bun run terminal` to start both pieces together.");
 console.log("");
 
 // Graceful shutdown

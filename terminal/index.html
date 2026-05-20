@@ -3,150 +3,173 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Grok Terminal</title>
+  <title>Terminal</title>
+  <link rel="stylesheet" href="https://esm.sh/xterm@5/css/xterm.css">
   <style>
-    :root {
-      --bg: #0a0a0a;
-      --bar: #111111;
-      --text: #e5e5e5;
-      --accent: #22c55e;
-    }
     * { box-sizing: border-box; }
     html, body {
       margin: 0;
       padding: 0;
       height: 100%;
-      background: var(--bg);
-      color: var(--text);
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      width: 100%;
       overflow: hidden;
+      /* Background is driven by JS (GrokNight / GrokDay) so the whole tab matches the theme */
+      background: #141414;
     }
-    #topbar {
-      height: 36px;
-      background: var(--bar);
-      border-bottom: 1px solid #1f1f1f;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 14px;
-      font-size: 12px;
-      letter-spacing: 0.3px;
-      user-select: none;
-    }
-    #topbar .left {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      color: #888;
-    }
-    #topbar .left .dot {
-      display: inline-block;
-      width: 8px;
-      height: 8px;
-      background: var(--accent);
-      border-radius: 50%;
-      box-shadow: 0 0 6px var(--accent);
-    }
-    #topbar .right {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      color: #666;
-      font-size: 11px;
-    }
-    #topbar button {
-      background: #1a1a1a;
-      border: 1px solid #222;
-      color: #999;
-      font: inherit;
-      font-size: 11px;
-      padding: 3px 9px;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-    #topbar button:hover {
-      background: #222;
-      color: #ddd;
-      border-color: #333;
+    html {
+      --terminal-edge-bg: #141414;
+      --terminal-top-gap: 0px;
     }
     #terminal {
-      height: calc(100vh - 36px);
+      position: absolute;
+      top: 0;
+      left: 0;
       width: 100%;
-      padding: 4px 0;
+      height: 100%;
+      /* Improves font rendering significantly (makes it look closer to native terminals) */
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+      font-synthesis: none;
     }
-    .xterm {
-      padding: 8px;
+    #terminal,
+    #terminal .xterm,
+    #terminal .xterm-viewport {
+      background: var(--terminal-edge-bg) !important;
     }
-    .status {
-      position: absolute;
-      bottom: 8px;
-      right: 14px;
-      font-size: 10px;
-      color: #444;
+    #terminal .xterm {
+      overflow: hidden;
+    }
+    #terminal .xterm-screen {
+      transform: translateY(var(--terminal-top-gap));
+    }
+    #terminal .xterm-viewport {
+      scrollbar-width: none;
+    }
+    #terminal .xterm-viewport::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+    }
+    #drop-overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      place-items: center;
+      background: color-mix(in srgb, var(--terminal-edge-bg), transparent 18%);
+      border: 1px solid #5f86b3;
+      color: #e5e5e5;
+      font: 13px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
       pointer-events: none;
+      z-index: 10;
     }
-    .hint {
-      position: absolute;
-      bottom: 8px;
-      left: 14px;
-      font-size: 10px;
-      color: #333;
-      pointer-events: none;
+    #drop-overlay.visible {
+      display: grid;
     }
   </style>
 </head>
 <body>
-  <div id="topbar">
-    <div class="left">
-      <span class="dot"></span>
-      <span id="shell-info">zsh • local</span>
-      <span id="cwd" style="color:#555; font-size:11px;"></span>
-    </div>
-    <div class="right">
-      <span>real PTY • browser tab</span>
-      <button id="reset-btn" title="Kill current shell and start fresh">Reset shell</button>
-      <button id="fit-btn" title="Force fit to window">Fit</button>
-    </div>
-  </div>
-
   <div id="terminal"></div>
-
-  <div class="hint">Cmd/Ctrl + T in Helium opens another real terminal tab. This is a live local shell.</div>
+  <div id="drop-overlay">Drop files to attach</div>
 
   <script type="module">
     // xterm + fit via esm.sh (zero build, reliable CDN for MVP)
     import { Terminal } from 'https://esm.sh/xterm@5';
     import { FitAddon } from 'https://esm.sh/@xterm/addon-fit@0.11';
 
+    const grokNight = {
+      background: '#141414',
+      foreground: '#e5e5e5',
+      cursor: '#ffffff',
+      cursorAccent: '#141414',
+      selectionBackground: '#343541',
+      black: '#141414',
+      red: '#f87171',
+      green: '#4ade80',
+      yellow: '#fde047',
+      blue: '#60a5fa',
+      magenta: '#c084fc',
+      cyan: '#67e8f9',
+      white: '#e5e5e5',
+      brightBlack: '#52525b',
+      brightRed: '#fca5a5',
+      brightGreen: '#86efac',
+      brightYellow: '#fef08c',
+      brightBlue: '#93c5fd',
+      brightMagenta: '#d8b4fe',
+      brightCyan: '#a5f3fc',
+      brightWhite: '#fafafa',
+    };
+
+    const grokDay = {
+      background: '#fafafa',
+      foreground: '#171717',
+      cursor: '#111111',
+      cursorAccent: '#fafafa',
+      selectionBackground: '#d4d4d8',
+      black: '#262626',
+      red: '#dc2626',
+      green: '#16a34a',
+      yellow: '#ca8a04',
+      blue: '#2563eb',
+      magenta: '#9333ea',
+      cyan: '#0891b2',
+      white: '#e5e5e5',
+      brightBlack: '#737373',
+      brightRed: '#ef4444',
+      brightGreen: '#22c55e',
+      brightYellow: '#eab308',
+      brightBlue: '#3b82f6',
+      brightMagenta: '#a855f7',
+      brightCyan: '#06b6d4',
+      brightWhite: '#ffffff',
+    };
+
+    function getSystemTheme() {
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      return prefersDark ? grokNight : grokDay;
+    }
+
+    let currentTheme = getSystemTheme();
+
+    function applyTheme(theme) {
+      currentTheme = theme;
+      term.options.theme = theme;
+      // Make the entire page (including any area around the xterm canvas) match perfectly
+      document.body.style.background = theme.background;
+      document.documentElement.style.setProperty('--terminal-edge-bg', theme.background);
+    }
+
+    function updateThemeFromSystem() {
+      applyTheme(getSystemTheme());
+    }
+
+    const params = new URLSearchParams(location.search);
+    const cursorParam = params.get('cursor');
+    if (cursorParam === 'bar' || cursorParam === 'block' || cursorParam === 'underline') {
+      localStorage.setItem('grok-terminal-cursor', cursorParam);
+    }
+    const cursorStyle = cursorParam === 'bar' || cursorParam === 'underline'
+      ? cursorParam
+      : 'block';
+    if (!cursorParam) {
+      localStorage.removeItem('grok-terminal-cursor');
+    }
+
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: 14,
+      cursorStyle,
+      fontSize: 13,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-      lineHeight: 1.15,
+      lineHeight: 1.0,
       letterSpacing: 0,
-      theme: {
-        background: '#0a0a0a',
-        foreground: '#e5e5e5',
-        cursor: '#22c55e',
-        cursorAccent: '#0a0a0a',
-        selectionBackground: '#334155',
-        black: '#1f1f1f',
-        red: '#f87171',
-        green: '#4ade80',
-        yellow: '#fde047',
-        blue: '#60a5fa',
-        magenta: '#c084fc',
-        cyan: '#67e8f9',
-        white: '#e5e5e5',
-        brightBlack: '#3f3f3f',
-        brightRed: '#fca5a5',
-        brightGreen: '#86efac',
-        brightYellow: '#fef08c',
-        brightBlue: '#93c5fd',
-        brightMagenta: '#d8b4fe',
-        brightCyan: '#a5f3fc',
-        brightWhite: '#f4f4f5',
-      },
+      mouseEvents: true,
+      scrollback: 10000,
+      fastScrollModifier: 'alt',
+      rightClickSelectsWord: false,
+      termName: 'xterm-256color',
+      drawBoldTextInBrightColors: true,
+      minimumContrastRatio: 1,
+      theme: getSystemTheme(),
       allowTransparency: false,
     });
 
@@ -154,40 +177,104 @@
     term.loadAddon(fitAddon);
 
     const container = document.getElementById('terminal');
+    const dropOverlay = document.getElementById('drop-overlay');
     term.open(container);
+    console.log('%c[Grok Terminal] renderer: DOM', 'color:#555');
+
+    // Apply the correct GrokNight / GrokDay theme + body background immediately after open.
+    // Then listen for live system theme changes (user flips OS dark/light mode).
+    updateThemeFromSystem();
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateThemeFromSystem);
+
+    // === Focus handling for pure full-screen terminal ===
+    // xterm.js only receives keyboard input when it has focus.
+    function grabFocus() {
+      term.focus();
+    }
+
+    // Immediate
+    term.focus();
+
+    // Focus handling — do NOT cancel or capture mouse events.
+    // xterm.js needs the raw mouse events for TUI application mouse mode (clicking buttons, closing windows, etc.).
+    container.addEventListener('mousedown', () => {
+      queueMicrotask(() => term.focus());
+    }, { passive: true });
+
+    // Also focus the terminal when the browser tab/window regains focus
+    window.addEventListener('focus', () => term.focus());
 
     // Initial fit
+    let lastSentCols = 0;
+    let lastSentRows = 0;
+
+    function getCellDimensions() {
+      const cell = term?._core?._renderService?.dimensions?.css?.cell;
+      if (cell?.width && cell?.height) {
+        return cell;
+      }
+      return null;
+    }
+
+    function fitCoveringViewport() {
+      const cell = getCellDimensions();
+      if (!cell) {
+        fitAddon.fit();
+        return;
+      }
+
+      const rect = container.getBoundingClientRect();
+      const cols = Math.max(2, Math.ceil(rect.width / cell.width));
+      const rows = Math.max(1, Math.floor(rect.height / cell.height));
+      const topGap = Math.max(0, rect.height - rows * cell.height);
+      document.documentElement.style.setProperty('--terminal-top-gap', `${topGap}px`);
+
+      if (cols !== term.cols || rows !== term.rows) {
+        term._core?._renderService?.clear?.();
+        term.resize(cols, rows);
+      }
+    }
+
+    function sendResizeIfNeeded() {
+      const { cols, rows } = term;
+      if (ws && ws.readyState === WebSocket.OPEN && (cols !== lastSentCols || rows !== lastSentRows)) {
+        lastSentCols = cols;
+        lastSentRows = rows;
+        ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+      }
+    }
+
     function doFit() {
       try {
-        fitAddon.fit();
-        // Send resize to server
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          const { cols, rows } = term;
-          ws.send(JSON.stringify({ type: 'resize', cols, rows }));
-        }
+        fitCoveringViewport();
+        sendResizeIfNeeded();
+        grabFocus();
       } catch (e) {
         // ignore during init
       }
     }
 
-    // WebSocket connection (same origin as the served page)
+    // Connect to the real PTY broker (must run under Node, not Bun)
+    // The Bun server on :4321 only serves the page. The actual shell lives on :4322.
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${location.host}/ws`;
+    const ptyHost = location.hostname || 'localhost';
+    const wsUrl = `${protocol}//${ptyHost}:4322`;
     let ws;
 
     function connect() {
       ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
-        document.getElementById('shell-info').textContent = 'zsh • live';
         doFit();
-        // Tell server current size right away
+        grabFocus();
+        // Tell PTY the real size
         setTimeout(() => {
           if (ws.readyState === WebSocket.OPEN) {
             const { cols, rows } = term;
             ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+            grabFocus();
           }
-        }, 50);
+        }, 80);
       };
 
       ws.onmessage = (event) => {
@@ -195,14 +282,80 @@
       };
 
       ws.onclose = () => {
-        document.getElementById('shell-info').textContent = 'zsh • disconnected';
-        term.write('\r\n\r\n[shell session ended — reload page to reconnect]\r\n');
+        term.write('\r\n\r\n[connection closed — reload tab to reconnect]\r\n');
       };
 
       ws.onerror = () => {
         term.write('\r\n[connection error]\r\n');
       };
     }
+
+    function insertPtyText(text) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(text);
+      }
+    }
+
+    async function uploadDroppedFiles(files) {
+      const form = new FormData();
+      for (const file of files) {
+        form.append('files', file);
+      }
+
+      const response = await fetch('/attachments', {
+        method: 'POST',
+        body: form,
+      });
+
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
+      return response.json();
+    }
+
+    let dragDepth = 0;
+
+    window.addEventListener('dragenter', (event) => {
+      event.preventDefault();
+      dragDepth += 1;
+      dropOverlay.classList.add('visible');
+    });
+
+    window.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'copy';
+      }
+    });
+
+    window.addEventListener('dragleave', (event) => {
+      event.preventDefault();
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) {
+        dropOverlay.classList.remove('visible');
+      }
+    });
+
+    window.addEventListener('drop', async (event) => {
+      event.preventDefault();
+      dragDepth = 0;
+      dropOverlay.classList.remove('visible');
+
+      const files = Array.from(event.dataTransfer?.files || []);
+      if (files.length === 0) return;
+
+      try {
+        const { paths } = await uploadDroppedFiles(files);
+        if (Array.isArray(paths) && paths.length > 0) {
+          insertPtyText(` ${paths.join(' ')} `);
+          grabFocus();
+        }
+      } catch (error) {
+        console.error('[Grok Terminal] file drop failed', error);
+        term.write(`\r\n[file attach failed: ${error?.message || error}]\r\n`);
+      }
+    });
 
     // Send user input to the real PTY
     term.onData((data) => {
@@ -213,39 +366,31 @@
 
     // Handle terminal-driven resize (rare but good)
     term.onResize(({ cols, rows }) => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
+      if (ws && ws.readyState === WebSocket.OPEN && (cols !== lastSentCols || rows !== lastSentRows)) {
+        lastSentCols = cols;
+        lastSentRows = rows;
         ws.send(JSON.stringify({ type: 'resize', cols, rows }));
       }
     });
 
-    // Window resize → fit + notify PTY
+    // Auto-fit + tell PTY on window resize (important for real terminal feel)
     let resizeTimer;
     window.addEventListener('resize', () => {
       clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(doFit, 60);
-    });
-
-    // Buttons
-    document.getElementById('fit-btn').addEventListener('click', doFit);
-    document.getElementById('reset-btn').addEventListener('click', () => {
-      if (ws) ws.close();
-      term.clear();
-      term.write('\x1b[2J\x1b[3J\x1b[H'); // clear screen + scrollback
-      setTimeout(connect, 120);
+      resizeTimer = setTimeout(doFit, 120);
     });
 
     // Boot
     connect();
 
-    // First fit after fonts are ready
-    setTimeout(doFit, 120);
-    setTimeout(doFit, 400);
+    // One final focus + fit after everything settles
+    setTimeout(() => { doFit(); grabFocus(); }, 300);
 
     // Nice startup banner in the terminal itself (server also sends one)
     // The server will send the initial prompt.
 
     // Keyboard hint (optional)
-    console.log('%c[Grok Terminal] xterm.js + real local PTY ready. This tab is a first-class shell.', 'color:#333');
+    console.log('%c[Grok Terminal] xterm.js + real local PTY ready. Base colors follow system (GrokNight/GrokDay). ANSI/truecolor left to the PTY.', 'color:#555');
   </script>
 </body>
 </html>

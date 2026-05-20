@@ -38,15 +38,12 @@
     </div>
 
     <script>
-      // Auto-redirect to the live terminal (change the port if you run with PORT=xxxx)
-      // In production Helium builds you can hard-wire or read from storage.
+      // Instant redirect for fast testing in Helium.
+      // When the terminal server is running, new tabs will jump straight to the real PTY.
       if (location.pathname === "/" || location.pathname === "/index.html") {
-        // Small delay so the user sees the helpful text if they opened it manually
-        setTimeout(() => {
-          window.location.replace("http://localhost:4321");
-        }, 420);
+        window.location.replace("http://localhost:4321");
       }
-      console.log("[Grok Terminal] newtab override ready — redirecting to real PTY tab");
+      console.log("[Grok Terminal] newtab override → redirecting to real PTY");
     </script>
   </body>
 </html>
