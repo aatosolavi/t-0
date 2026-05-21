@@ -78,7 +78,7 @@ Typing normal characters filters workspace names and paths live. `Backspace` edi
 
 `?cwd=/absolute/path` still bypasses the launcher and starts a shell directly in that path. That keeps direct deep links useful.
 
-Each browser tab gets a generated session id in `sessionStorage`, so reloading the page reattaches to the same PTY session and replays recent terminal output. A new tab gets a new session. Closed tabs are retained briefly for reloads and then cleaned up by the PTY broker.
+Each browser tab gets a generated session id in `sessionStorage`, so reloading the page reattaches to the same PTY session and replays recent terminal output. A new tab gets a new session. Disconnected tabs are retained for 6 hours by default so laptop sleep or temporary network/browser disconnects do not immediately kill running sessions. Override with `GROK_TERMINAL_SESSION_RETAIN_MS`.
 
 Stable named local addresses are supported:
 

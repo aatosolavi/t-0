@@ -44,7 +44,7 @@ const LAUNCHER_PATH =
         : LEGACY_BUILD_LAUNCHER_PATH);
 const LAUNCHER_ENABLED = process.env.GROK_TERMINAL_USE_LAUNCHER !== "0" && existsSync(LAUNCHER_PATH);
 const TERMINAL_NAME = "xterm-256color";
-const SESSION_RETAIN_MS = Number(process.env.GROK_TERMINAL_SESSION_RETAIN_MS || 30000);
+const SESSION_RETAIN_MS = Number(process.env.GROK_TERMINAL_SESSION_RETAIN_MS || 6 * 60 * 60 * 1000);
 const SESSION_HISTORY_LIMIT = Number(process.env.GROK_TERMINAL_SESSION_HISTORY_LIMIT || 2_000_000);
 
 const sessions = new Map();

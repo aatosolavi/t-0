@@ -21,6 +21,8 @@
     }
     html {
       --terminal-edge-bg: #141414;
+      --terminal-cursor-bg: #ffffff;
+      --terminal-cursor-fg: #141414;
     }
     #terminal {
       position: absolute;
@@ -52,6 +54,19 @@
       font-variant-ligatures: none;
       letter-spacing: 0;
       word-spacing: 0;
+    }
+    @keyframes terminal-dom-block-cursor-blink {
+      0% {
+        background-color: var(--terminal-cursor-bg);
+        color: var(--terminal-cursor-fg);
+      }
+      50% {
+        background-color: var(--terminal-cursor-cell-bg, var(--terminal-edge-bg));
+        color: var(--terminal-cursor-cell-fg, inherit);
+      }
+    }
+    #terminal .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-blink.xterm-cursor-block {
+      animation: terminal-dom-block-cursor-blink 1s step-end infinite !important;
     }
     #terminal .xterm-viewport {
       scrollbar-width: none;
@@ -148,6 +163,8 @@
       document.documentElement.style.background = theme.background;
       document.body.style.background = theme.background;
       document.documentElement.style.setProperty('--terminal-edge-bg', theme.background);
+      document.documentElement.style.setProperty('--terminal-cursor-bg', theme.cursor);
+      document.documentElement.style.setProperty('--terminal-cursor-fg', theme.cursorAccent);
     }
 
     function updateThemeFromSystem() {
@@ -206,10 +223,44 @@
       console.warn('[Mission Control] canvas renderer failed; using DOM renderer', error);
     }
 
+    const cursorProbeClasses = [
+      'xterm-cursor',
+      'xterm-cursor-blink',
+      'xterm-cursor-block',
+      'xterm-cursor-bar',
+      'xterm-cursor-underline',
+      'xterm-cursor-outline',
+    ];
+
+    function syncDomCursorCellColors() {
+      const cursor = container.querySelector('.xterm-rows .xterm-cursor.xterm-cursor-block');
+      if (!cursor || !cursor.parentElement) return;
+
+      const probe = cursor.cloneNode(false);
+      for (const className of cursorProbeClasses) {
+        probe.classList.remove(className);
+      }
+      probe.textContent = cursor.textContent || ' ';
+      probe.style.animation = 'none';
+      probe.style.position = 'absolute';
+      probe.style.left = '-9999px';
+      probe.style.top = '-9999px';
+      probe.style.visibility = 'hidden';
+      probe.style.pointerEvents = 'none';
+
+      cursor.parentElement.appendChild(probe);
+      const style = getComputedStyle(probe);
+      cursor.style.setProperty('--terminal-cursor-cell-bg', style.backgroundColor);
+      cursor.style.setProperty('--terminal-cursor-cell-fg', style.color);
+      probe.remove();
+    }
+
     // Apply the correct terminal theme + body background immediately after open.
     // Then listen for live system theme changes (user flips OS dark/light mode).
     updateThemeFromSystem();
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateThemeFromSystem);
+    requestAnimationFrame(syncDomCursorCellColors);
+    window.setInterval(syncDomCursorCellColors, 500);
 
     // === Focus handling for pure full-screen terminal ===
     // xterm.js only receives keyboard input when it has focus.
@@ -302,6 +353,7 @@
 
       ws.onmessage = (event) => {
         term.write(event.data);
+        requestAnimationFrame(syncDomCursorCellColors);
       };
 
       ws.onclose = () => {
