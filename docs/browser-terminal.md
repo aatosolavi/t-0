@@ -68,7 +68,7 @@ The browser page should stay a terminal surface. Workspace/app selection is movi
 - If the binary is missing, the broker falls back to the normal login shell.
 - Set `GROK_TERMINAL_USE_LAUNCHER=0` to force shell-first behavior.
 
-The TUI scans `~/dev`, shows repos centered in the terminal, and supports keyboard and mouse input through terminal events. It currently offers three simple app choices: Grok Build, Codex, and Shell.
+The TUI scans `~/dev`, shows repos centered in the terminal, and supports keyboard and mouse input through terminal events. App choices: **Grok**, **Codex**, **Claude**, **Amp**, **Devin**, **Droid**, and **Shell** (keys `1`–`7`, or Tab).
 
 Workspace selection is ordered by recent use. Each launch writes the selected cwd to:
 

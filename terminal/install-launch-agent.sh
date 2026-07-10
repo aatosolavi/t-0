@@ -11,6 +11,10 @@ BUN_BIN="$(command -v bun)"
 NODE_BIN="$(command -v node)"
 CODEX_BIN="$(command -v codex || true)"
 GROK_BIN="$(command -v grok || true)"
+CLAUDE_BIN="$(command -v claude || true)"
+AMP_BIN="$(command -v amp || true)"
+DEVIN_BIN="$(command -v devin || true)"
+DROID_BIN="$(command -v droid || true)"
 TERMINAL_PATH="$HOME/.grok-mission-control/bin:$HOME/.npm-global/bin:$HOME/.grok/bin:$HOME/.local/bin:$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 mkdir -p "$HOME/Library/LaunchAgents" "$LOG_DIR"
@@ -46,6 +50,18 @@ cat > "$PLIST" <<PLIST
 
     <key>GROK_TERMINAL_GROK_COMMAND</key>
     <string>${GROK_BIN:-grok}</string>
+
+    <key>GROK_TERMINAL_CLAUDE_COMMAND</key>
+    <string>${CLAUDE_BIN:-claude}</string>
+
+    <key>GROK_TERMINAL_AMP_COMMAND</key>
+    <string>${AMP_BIN:-amp}</string>
+
+    <key>GROK_TERMINAL_DEVIN_COMMAND</key>
+    <string>${DEVIN_BIN:-devin}</string>
+
+    <key>GROK_TERMINAL_DROID_COMMAND</key>
+    <string>${DROID_BIN:-droid}</string>
 
     <key>PATH</key>
     <string>$TERMINAL_PATH</string>

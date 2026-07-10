@@ -43,22 +43,75 @@ struct Repo {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Action {
-    Shell,
-    Codex,
     Grok,
+    Codex,
+    Claude,
+    Amp,
+    Devin,
+    Droid,
+    Shell,
 }
 
 impl Action {
-    fn all() -> [Action; 3] {
-        [Action::Grok, Action::Codex, Action::Shell]
+    fn all() -> &'static [Action] {
+        &[
+            Action::Grok,
+            Action::Codex,
+            Action::Claude,
+            Action::Amp,
+            Action::Devin,
+            Action::Droid,
+            Action::Shell,
+        ]
     }
 
     fn label(self) -> &'static str {
         match self {
-            Action::Shell => "Shell",
+            Action::Grok => "Grok",
             Action::Codex => "Codex",
-            Action::Grok => "Grok Build",
+            Action::Claude => "Claude",
+            Action::Amp => "Amp",
+            Action::Devin => "Devin",
+            Action::Droid => "Droid",
+            Action::Shell => "Shell",
         }
+    }
+
+    fn env_command_key(self) -> Option<&'static str> {
+        match self {
+            Action::Shell => None,
+            Action::Grok => Some("GROK_TERMINAL_GROK_COMMAND"),
+            Action::Codex => Some("GROK_TERMINAL_CODEX_COMMAND"),
+            Action::Claude => Some("GROK_TERMINAL_CLAUDE_COMMAND"),
+            Action::Amp => Some("GROK_TERMINAL_AMP_COMMAND"),
+            Action::Devin => Some("GROK_TERMINAL_DEVIN_COMMAND"),
+            Action::Droid => Some("GROK_TERMINAL_DROID_COMMAND"),
+        }
+    }
+
+    fn default_command(self) -> Option<&'static str> {
+        match self {
+            Action::Shell => None,
+            Action::Grok => Some("grok"),
+            Action::Codex => Some("codex"),
+            Action::Claude => Some("claude"),
+            Action::Amp => Some("amp"),
+            Action::Devin => Some("devin"),
+            Action::Droid => Some("droid"),
+        }
+    }
+
+    fn resolve_command(self) -> Option<String> {
+        let key = self.env_command_key()?;
+        let default = self.default_command()?;
+        Some(env::var(key).unwrap_or_else(|_| default.to_string()))
+    }
+
+    fn index(self) -> usize {
+        Action::all()
+            .iter()
+            .position(|action| *action == self)
+            .unwrap_or(0)
     }
 }
 
@@ -120,19 +173,22 @@ impl App {
     }
 
     fn select_next_action(&mut self) {
-        self.selected_action = match self.selected_action {
-            Action::Grok => Action::Codex,
-            Action::Codex => Action::Shell,
-            Action::Shell => Action::Grok,
-        };
+        let actions = Action::all();
+        let next = (self.selected_action.index() + 1) % actions.len();
+        self.selected_action = actions[next];
     }
 
     fn select_previous_action(&mut self) {
-        self.selected_action = match self.selected_action {
-            Action::Grok => Action::Shell,
-            Action::Codex => Action::Grok,
-            Action::Shell => Action::Codex,
-        };
+        let actions = Action::all();
+        let prev = (self.selected_action.index() + actions.len() - 1) % actions.len();
+        self.selected_action = actions[prev];
+    }
+
+    fn select_action_by_number(&mut self, number: u8) {
+        let index = usize::from(number.saturating_sub(1));
+        if let Some(action) = Action::all().get(index) {
+            self.selected_action = *action;
+        }
     }
 
     fn keep_selected_visible(&mut self) {
@@ -240,9 +296,9 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 KeyCode::Up => app.select_previous_repo(),
                 KeyCode::Right | KeyCode::Tab => app.select_next_action(),
                 KeyCode::Left | KeyCode::BackTab => app.select_previous_action(),
-                KeyCode::Char('1') => app.selected_action = Action::Grok,
-                KeyCode::Char('2') => app.selected_action = Action::Codex,
-                KeyCode::Char('3') => app.selected_action = Action::Shell,
+                KeyCode::Char(value @ '1'..='7') => {
+                    app.select_action_by_number(value.to_digit(10).unwrap_or(0) as u8);
+                }
                 KeyCode::Char(value) => app.push_filter_char(value),
                 _ => {}
             },
@@ -321,7 +377,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         Line::from(vec![
             Span::styled("enter", Style::default().fg(Color::White)),
             Span::styled(" open  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("tab", Style::default().fg(Color::White)),
+            Span::styled("1-7/tab", Style::default().fg(Color::White)),
             Span::styled(" app  ", Style::default().fg(Color::DarkGray)),
             Span::styled("up/down", Style::default().fg(Color::White)),
             Span::styled(" workspace  ", Style::default().fg(Color::DarkGray)),
@@ -330,7 +386,10 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
             Span::styled("type", Style::default().fg(Color::White)),
             Span::styled(" filter", Style::default().fg(Color::DarkGray)),
         ]),
-        Line::from(Span::styled("backspace edits filter; esc clears filter or closes", Style::default().fg(Color::DarkGray))),
+        Line::from(Span::styled(
+            "backspace edits filter; esc clears filter or closes",
+            Style::default().fg(Color::DarkGray),
+        )),
     ]);
     frame.render_widget(footer, chunks[4]);
 }
@@ -343,11 +402,12 @@ fn draw_actions(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
 
     for (index, action) in Action::all().iter().enumerate() {
         if index > 0 {
-            spans.push(Span::raw("  "));
-            x += 2;
+            spans.push(Span::raw(" "));
+            x += 1;
         }
 
-        let label = format!(" {} ", action.label());
+        // Number prefix doubles as the 1–7 keyboard shortcut.
+        let label = format!(" {} {} ", index + 1, action.label());
         let width = label.chars().count() as u16;
         let style = if *action == app.selected_action {
             Style::default()
@@ -624,22 +684,22 @@ fn replace_with_shell(launch: Launch) -> io::Result<()> {
 
     #[cfg(unix)]
     {
-        let error = match launch.action {
-            Action::Shell => Command::new(&shell)
-                .arg("-l")
-                .current_dir(&launch.cwd)
-                .exec(),
-            Action::Codex | Action::Grok => unreachable!("only shell should replace launcher"),
-        };
+        if launch.action != Action::Shell {
+            unreachable!("only shell should replace launcher");
+        }
+        let error = Command::new(&shell)
+            .arg("-l")
+            .current_dir(&launch.cwd)
+            .exec();
         return Err(error);
     }
 
     #[cfg(not(unix))]
     {
-        let status = match launch.action {
-            Action::Shell => Command::new(&shell).current_dir(&launch.cwd).status()?,
-            Action::Codex | Action::Grok => unreachable!("only shell should replace launcher"),
-        };
+        if launch.action != Action::Shell {
+            unreachable!("only shell should replace launcher");
+        }
+        let status = Command::new(&shell).current_dir(&launch.cwd).status()?;
         std::process::exit(status.code().unwrap_or(0));
     }
 }
@@ -648,10 +708,8 @@ fn run_child_app(launch: Launch) -> io::Result<()> {
     let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     record_recent_workspace(&launch.cwd);
 
-    let command = match launch.action {
-        Action::Shell => return replace_with_shell(launch),
-        Action::Codex => env::var("GROK_TERMINAL_CODEX_COMMAND").unwrap_or_else(|_| "codex".to_string()),
-        Action::Grok => env::var("GROK_TERMINAL_GROK_COMMAND").unwrap_or_else(|_| "grok".to_string()),
+    let Some(command) = launch.action.resolve_command() else {
+        return replace_with_shell(launch);
     };
 
     let status = Command::new(&shell)

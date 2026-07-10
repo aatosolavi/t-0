@@ -139,6 +139,26 @@ mc() {
         eval "$_mc_grok_command"
         return $?
         ;;
+      claude)
+        local _mc_claude_command="\${GROK_TERMINAL_CLAUDE_COMMAND:-claude}"
+        eval "$_mc_claude_command"
+        return $?
+        ;;
+      amp)
+        local _mc_amp_command="\${GROK_TERMINAL_AMP_COMMAND:-amp}"
+        eval "$_mc_amp_command"
+        return $?
+        ;;
+      devin)
+        local _mc_devin_command="\${GROK_TERMINAL_DEVIN_COMMAND:-devin}"
+        eval "$_mc_devin_command"
+        return $?
+        ;;
+      droid)
+        local _mc_droid_command="\${GROK_TERMINAL_DROID_COMMAND:-droid}"
+        eval "$_mc_droid_command"
+        return $?
+        ;;
     esac
   else
     rm -f "$_mc_cd_file"
