@@ -229,12 +229,13 @@ fn default_true() -> bool {
 }
 
 /// Cycle order for Settings → Default IDE (`e` key).
+/// Windsurf was rebranded to Devin Desktop (Cognition); keep Windsurf as open fallback.
 const IDE_OPTIONS: &[&str] = &[
     "auto",
     "Cursor",
     "Visual Studio Code",
     "Zed",
-    "Windsurf",
+    "Devin Desktop",
 ];
 
 impl Default for SettingsFile {
@@ -573,6 +574,14 @@ impl App {
                     .settings
                     .default_ide
                     .as_deref()
+                    .map(|s| {
+                        // Legacy saved value after Windsurf → Devin Desktop rebrand.
+                        if s == "Windsurf" {
+                            "Devin Desktop"
+                        } else {
+                            s
+                        }
+                    })
                     .unwrap_or("auto");
                 let idx = IDE_OPTIONS
                     .iter()
@@ -1170,6 +1179,7 @@ fn draw_settings(frame: &mut Frame<'_>, app: &mut App) {
         .settings
         .default_ide
         .as_deref()
+        .map(|s| if s == "Windsurf" { "Devin Desktop" } else { s })
         .unwrap_or("auto");
 
     let rows = [
@@ -1583,8 +1593,18 @@ fn open_in_editor(path: &Path, preferred_ide: Option<&str>) -> Result<String, St
     // 2) User setting: default IDE (macOS app name).
     if let Some(name) = preferred_ide {
         let name = name.trim();
-        if !name.is_empty() && name != "auto" && try_open_app(name) {
-            return Ok(name.to_string());
+        if !name.is_empty() && name != "auto" {
+            // Devin Desktop is the Windsurf rebrand; try both app names.
+            let aliases: &[&str] = if name == "Devin Desktop" || name == "Windsurf" {
+                &["Devin Desktop", "Windsurf"]
+            } else {
+                &[name]
+            };
+            for alias in aliases {
+                if try_open_app(alias) {
+                    return Ok((*alias).to_string());
+                }
+            }
         }
     }
 
@@ -1593,14 +1613,15 @@ fn open_in_editor(path: &Path, preferred_ide: Option<&str>) -> Result<String, St
         ("Cursor", "/Applications/Cursor.app"),
         ("Visual Studio Code", "/Applications/Visual Studio Code.app"),
         ("Zed", "/Applications/Zed.app"),
-        ("Windsurf", "/Applications/Windsurf.app"),
+        ("Devin Desktop", "/Applications/Devin Desktop.app"),
+        ("Windsurf", "/Applications/Windsurf.app"), // legacy install name
     ];
     for (name, app_path) in app_candidates {
         if Path::new(app_path).exists() && try_open_app(name) {
             return Ok(name.into());
         }
     }
-    for name in ["Cursor", "Visual Studio Code", "Zed", "Windsurf"] {
+    for name in ["Cursor", "Visual Studio Code", "Zed", "Devin Desktop", "Windsurf"] {
         if try_open_app(name) {
             return Ok(name.into());
         }
@@ -1613,7 +1634,7 @@ fn open_in_editor(path: &Path, preferred_ide: Option<&str>) -> Result<String, St
         }
     }
 
-    Err("no IDE found — set Default IDE in settings (s) or MC_EDITOR".into())
+    Err("no ide found — set default ide in settings (s) or mc_editor".into())
 }
 
 fn open_github(path: &Path) -> Result<String, String> {
