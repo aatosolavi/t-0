@@ -67,6 +67,11 @@ bun run terminal
 
 Missing CLIs are **dimmed**. From any shell: run `mc` again.
 
+**Memory (tokenmaxxer mode):**
+- Remembers **last agent per workspace** (auto-selects when you highlight a repo)
+- **`space`** (empty filter) toggles **favorite** — favorites float to the top (`★`)
+- **`.`** (empty filter) **continues last** workspace + agent
+
 ### Themes
 
 - `?theme=light` · `?theme=dark` · `?theme=system`

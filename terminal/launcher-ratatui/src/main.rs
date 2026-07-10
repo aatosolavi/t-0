@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     env,
     fs,
     io::{self, stdout},
@@ -25,12 +25,14 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
     Frame, Terminal,
 };
+use serde::{Deserialize, Serialize};
 
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 
 const MAX_WIDTH: u16 = 92;
 const MAX_RECENTS: usize = 20;
+const MAX_FAVORITES: usize = 20;
 /// Mission Control accent — orange-500 (#f97316).
 const ACCENT: Color = Color::Rgb(249, 115, 22);
 /// Text on filled accent chips (dark enough for contrast on orange).
@@ -67,6 +69,33 @@ impl Action {
             Action::Droid,
             Action::Shell,
         ]
+    }
+
+    fn id(self) -> &'static str {
+        match self {
+            Action::Grok => "grok",
+            Action::Codex => "codex",
+            Action::Pi => "pi",
+            Action::Claude => "claude",
+            Action::Amp => "amp",
+            Action::Devin => "devin",
+            Action::Droid => "droid",
+            Action::Shell => "shell",
+        }
+    }
+
+    fn from_id(value: &str) -> Option<Action> {
+        match value {
+            "grok" => Some(Action::Grok),
+            "codex" => Some(Action::Codex),
+            "pi" => Some(Action::Pi),
+            "claude" => Some(Action::Claude),
+            "amp" => Some(Action::Amp),
+            "devin" => Some(Action::Devin),
+            "droid" => Some(Action::Droid),
+            "shell" => Some(Action::Shell),
+            _ => None,
+        }
     }
 
     fn label(self) -> &'static str {
@@ -127,6 +156,188 @@ impl Action {
             .position(|action| *action == self)
             .unwrap_or(0)
     }
+
+    fn first_available() -> Action {
+        Action::all()
+            .iter()
+            .copied()
+            .find(|action| action.is_available())
+            .unwrap_or(Action::Shell)
+    }
+
+    fn resolve_available(self) -> Action {
+        if self.is_available() {
+            self
+        } else {
+            Action::first_available()
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+struct LastLaunch {
+    cwd: String,
+    action: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct LauncherStateFile {
+    version: u32,
+    #[serde(default)]
+    last: Option<LastLaunch>,
+    #[serde(default)]
+    favorites: Vec<String>,
+    #[serde(default)]
+    agents: HashMap<String, String>,
+}
+
+impl Default for LauncherStateFile {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            last: None,
+            favorites: Vec::new(),
+            agents: HashMap::new(),
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+struct LauncherState {
+    last: Option<(PathBuf, Action)>,
+    favorites: Vec<PathBuf>,
+    agents: HashMap<PathBuf, Action>,
+}
+
+impl LauncherState {
+    fn load() -> Self {
+        let path = launcher_state_path();
+        let Ok(text) = fs::read_to_string(&path) else {
+            return Self::default();
+        };
+        let Ok(file) = serde_json::from_str::<LauncherStateFile>(&text) else {
+            return Self::default();
+        };
+
+        let mut favorites = Vec::new();
+        let mut seen = HashSet::new();
+        for raw in file.favorites {
+            let p = PathBuf::from(raw);
+            if p.is_dir() && seen.insert(p.clone()) {
+                favorites.push(p);
+            }
+            if favorites.len() >= MAX_FAVORITES {
+                break;
+            }
+        }
+
+        let mut agents = HashMap::new();
+        for (raw, action_id) in file.agents {
+            let p = PathBuf::from(raw);
+            if !p.is_dir() {
+                continue;
+            }
+            if let Some(action) = Action::from_id(&action_id) {
+                agents.insert(p, action);
+            }
+        }
+
+        let last = file.last.and_then(|entry| {
+            let cwd = PathBuf::from(entry.cwd);
+            if !cwd.is_dir() {
+                return None;
+            }
+            let action = Action::from_id(&entry.action)?;
+            Some((cwd, action))
+        });
+
+        Self {
+            last,
+            favorites,
+            agents,
+        }
+    }
+
+    fn save(&self) {
+        let data = data_dir();
+        let _ = fs::create_dir_all(&data);
+
+        let favorites: Vec<String> = self
+            .favorites
+            .iter()
+            .filter(|path| path.is_dir())
+            .take(MAX_FAVORITES)
+            .map(|path| path.display().to_string())
+            .collect();
+
+        let mut agents = HashMap::new();
+        for (path, action) in &self.agents {
+            if path.is_dir() {
+                agents.insert(path.display().to_string(), action.id().to_string());
+            }
+        }
+
+        let last = self.last.as_ref().and_then(|(cwd, action)| {
+            if !cwd.is_dir() {
+                return None;
+            }
+            Some(LastLaunch {
+                cwd: cwd.display().to_string(),
+                action: action.id().to_string(),
+            })
+        });
+
+        let file = LauncherStateFile {
+            version: 1,
+            last,
+            favorites,
+            agents,
+        };
+
+        if let Ok(json) = serde_json::to_string_pretty(&file) {
+            let _ = fs::write(launcher_state_path(), format!("{json}\n"));
+        }
+    }
+
+    fn remember_launch(&mut self, cwd: &Path, action: Action) {
+        if !cwd.is_dir() {
+            return;
+        }
+        self.last = Some((cwd.to_path_buf(), action));
+        self.agents.insert(cwd.to_path_buf(), action);
+        self.save();
+    }
+
+    fn agent_for(&self, path: &Path) -> Option<Action> {
+        self.agents.get(path).copied()
+    }
+
+    fn toggle_favorite(&mut self, path: &Path) -> bool {
+        if !path.is_dir() {
+            return false;
+        }
+        if let Some(index) = self.favorites.iter().position(|fav| fav == path) {
+            self.favorites.remove(index);
+        } else {
+            self.favorites.insert(0, path.to_path_buf());
+            if self.favorites.len() > MAX_FAVORITES {
+                self.favorites.truncate(MAX_FAVORITES);
+            }
+        }
+        self.save();
+        true
+    }
+
+    fn continue_last(&self) -> Option<Launch> {
+        let (cwd, action) = self.last.as_ref()?;
+        if !cwd.is_dir() {
+            return None;
+        }
+        Some(Launch {
+            cwd: cwd.clone(),
+            action: action.resolve_available(),
+        })
+    }
 }
 
 struct Launch {
@@ -143,6 +354,7 @@ struct UiHitboxes {
 }
 
 struct App {
+    state: LauncherState,
     repos: Vec<Repo>,
     visible_repos: Vec<usize>,
     selected_visible: usize,
@@ -154,36 +366,64 @@ struct App {
 
 impl App {
     fn new() -> Self {
-        let repos = discover_repos();
+        let state = LauncherState::load();
+        let repos = discover_repos(&state);
         let visible_repos = (0..repos.len()).collect();
-        Self {
+        let mut app = Self {
+            state,
             repos,
             visible_repos,
             selected_visible: 0,
-            selected_action: Action::Grok,
+            selected_action: Action::first_available(),
             filter: String::new(),
             offset: 0,
             hitboxes: UiHitboxes::default(),
-        }
+        };
+        app.apply_agent_memory();
+        app
+    }
+
+    fn selected_repo(&self) -> Option<&Repo> {
+        let repo_index = *self.visible_repos.get(self.selected_visible)?;
+        self.repos.get(repo_index)
     }
 
     fn selected_launch(&self) -> Option<Launch> {
-        let repo_index = *self.visible_repos.get(self.selected_visible)?;
+        let repo = self.selected_repo()?;
         Some(Launch {
             action: self.selected_action,
-            cwd: self.repos[repo_index].path.clone(),
+            cwd: repo.path.clone(),
         })
+    }
+
+    fn apply_agent_memory(&mut self) {
+        let Some(repo) = self.selected_repo() else {
+            return;
+        };
+        if let Some(action) = self.state.agent_for(&repo.path) {
+            self.selected_action = action.resolve_available();
+        }
     }
 
     fn select_next_repo(&mut self) {
         self.selected_visible =
             (self.selected_visible + 1).min(self.visible_repos.len().saturating_sub(1));
         self.keep_selected_visible();
+        self.apply_agent_memory();
     }
 
     fn select_previous_repo(&mut self) {
         self.selected_visible = self.selected_visible.saturating_sub(1);
         self.keep_selected_visible();
+        self.apply_agent_memory();
+    }
+
+    fn select_repo_visible(&mut self, visible_index: usize) {
+        if visible_index < self.visible_repos.len() {
+            self.selected_visible = visible_index;
+            self.keep_selected_visible();
+            self.apply_agent_memory();
+        }
     }
 
     fn select_next_action(&mut self) {
@@ -242,6 +482,38 @@ impl App {
             .collect();
         self.selected_visible = 0;
         self.offset = 0;
+        self.apply_agent_memory();
+    }
+
+    fn toggle_favorite_selected(&mut self) {
+        let Some(path) = self.selected_repo().map(|repo| repo.path.clone()) else {
+            return;
+        };
+        if !self.state.toggle_favorite(&path) {
+            return;
+        }
+        self.rebuild_repos_preserving_selection(&path);
+    }
+
+    fn rebuild_repos_preserving_selection(&mut self, selected_path: &Path) {
+        self.repos = discover_repos(&self.state);
+        self.apply_filter();
+        if let Some(visible_index) = self
+            .visible_repos
+            .iter()
+            .position(|repo_index| self.repos[*repo_index].path == selected_path)
+        {
+            self.selected_visible = visible_index;
+            self.keep_selected_visible();
+        }
+        self.apply_agent_memory();
+    }
+
+    fn prepare_launch(&mut self, launch: &Launch) {
+        // Only remember when the action can actually run.
+        if launch.action == Action::Shell || launch.action.is_available() {
+            self.state.remember_launch(&launch.cwd, launch.action);
+        }
     }
 }
 
@@ -302,6 +574,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 }
                 KeyCode::Enter => {
                     if let Some(launch) = app.selected_launch() {
+                        app.prepare_launch(&launch);
                         return Ok(Some(launch));
                     }
                 }
@@ -312,6 +585,15 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 KeyCode::Left | KeyCode::BackTab => app.select_previous_action(),
                 KeyCode::Char(value @ '1'..='8') => {
                     app.select_action_by_number(value.to_digit(10).unwrap_or(0) as u8);
+                }
+                KeyCode::Char(' ') if app.filter.is_empty() => {
+                    app.toggle_favorite_selected();
+                }
+                KeyCode::Char('.') if app.filter.is_empty() => {
+                    if let Some(launch) = app.state.continue_last() {
+                        app.prepare_launch(&launch);
+                        return Ok(Some(launch));
+                    }
                 }
                 KeyCode::Char(value) => app.push_filter_char(value),
                 _ => {}
@@ -332,14 +614,16 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
 
                     let list_bottom = app.hitboxes.list_top + app.hitboxes.list_height;
                     if mouse.row >= app.hitboxes.list_top && mouse.row < list_bottom {
-                        let clicked_visible = app.offset + usize::from(mouse.row - app.hitboxes.list_top);
+                        let clicked_visible =
+                            app.offset + usize::from(mouse.row - app.hitboxes.list_top);
                         if clicked_visible < app.visible_repos.len() {
                             if clicked_visible == app.selected_visible {
                                 if let Some(launch) = app.selected_launch() {
+                                    app.prepare_launch(&launch);
                                     return Ok(Some(launch));
                                 }
                             }
-                            app.selected_visible = clicked_visible;
+                            app.select_repo_visible(clicked_visible);
                         }
                     }
                 }
@@ -391,17 +675,17 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         Line::from(vec![
             Span::styled("enter", Style::default().fg(Color::White)),
             Span::styled(" open  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("1-8/tab", Style::default().fg(Color::White)),
+            Span::styled(".", Style::default().fg(Color::White)),
+            Span::styled(" continue  ", Style::default().fg(Color::DarkGray)),
+            Span::styled("space", Style::default().fg(Color::White)),
+            Span::styled(" fav  ", Style::default().fg(Color::DarkGray)),
+            Span::styled("1-8", Style::default().fg(Color::White)),
             Span::styled(" app  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("up/down", Style::default().fg(Color::White)),
-            Span::styled(" workspace  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("click selected", Style::default().fg(Color::White)),
-            Span::styled(" open  ", Style::default().fg(Color::DarkGray)),
             Span::styled("type", Style::default().fg(Color::White)),
             Span::styled(" filter", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(Span::styled(
-            "backspace edits filter · esc clears/closes · dim app = missing CLI",
+            "remembers last agent per workspace · dim app = missing CLI",
             Style::default().fg(Color::DarkGray),
         )),
     ]);
@@ -455,7 +739,7 @@ fn draw_actions(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
 
 fn draw_filter(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let value = if app.filter.is_empty() {
-        "type to filter".to_string()
+        "type to filter · . continue · space fav".to_string()
     } else {
         app.filter.clone()
     };
@@ -499,6 +783,12 @@ fn draw_repos(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
             Style::default().fg(Color::Gray)
         };
 
+        let badge_style = if repo.badge == "★" {
+            Style::default().fg(ACCENT)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+
         lines.push(Line::from(vec![
             Span::styled(format!("{marker} "), Style::default().fg(ACCENT)),
             Span::styled(pad_or_trim(&repo.name, 24), style),
@@ -507,7 +797,7 @@ fn draw_repos(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
                 pad_or_trim(&display_path(&repo.path), area.width.saturating_sub(40) as usize),
                 Style::default().fg(Color::DarkGray),
             ),
-            Span::styled(repo.badge, Style::default().fg(Color::DarkGray)),
+            Span::styled(repo.badge, badge_style),
         ]));
     }
 
@@ -541,21 +831,29 @@ fn inset(area: Rect, horizontal: u16, vertical: u16) -> Rect {
     }
 }
 
-fn discover_repos() -> Vec<Repo> {
+fn discover_repos(state: &LauncherState) -> Vec<Repo> {
     let home = home_dir();
     let data = data_dir();
     let root = workspace_root();
     let mut repos = Vec::new();
     let mut seen = HashSet::new();
 
+    // 1) Favorites first (pin order, newest pin first).
+    for path in &state.favorites {
+        add_repo(&mut repos, &mut seen, path.clone(), "★");
+    }
+
+    // 2) Recents.
     for recent in read_recent_workspaces(&data) {
         add_repo(&mut repos, &mut seen, recent, "recent");
     }
 
+    // 3) Last terminal cwd.
     if let Some(last_cwd) = read_last_cwd(&data) {
         add_repo(&mut repos, &mut seen, last_cwd, "last");
     }
 
+    // 4) Workspace root + git children.
     add_repo(&mut repos, &mut seen, root.clone(), "root");
 
     if let Ok(entries) = fs::read_dir(&root) {
@@ -597,6 +895,10 @@ fn add_repo(repos: &mut Vec<Repo>, seen: &mut HashSet<PathBuf>, path: PathBuf, b
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.display().to_string());
     repos.push(Repo { name, path, badge });
+}
+
+fn launcher_state_path() -> PathBuf {
+    data_dir().join("launcher-state.json")
 }
 
 fn read_last_cwd(data: &Path) -> Option<PathBuf> {

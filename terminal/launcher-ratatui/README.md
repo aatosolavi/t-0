@@ -41,10 +41,14 @@ Set `GROK_TERMINAL_USE_LAUNCHER=0` to force the old shell-first behavior.
 - `7`: Droid
 - `8`: Shell
 - `enter`: open
+- `.` (filter empty): continue last workspace + agent
+- `space` (filter empty): toggle favorite (`★` at top)
 - mouse wheel: move through workspaces
 - click an app name: choose app
 - click a workspace once: select
 - click the selected workspace again: open
+
+Memory lives in `$MC_DATA_DIR/launcher-state.json` (last launch, favorites, per-workspace agent).
 
 Shell replaces the launcher. Agent CLIs (Grok, Codex, Pi, Claude, Amp, Devin, Droid) run as child apps; when they exit, the launcher opens again. If you open Shell and run an agent manually from there, exiting the agent returns to that shell.
 

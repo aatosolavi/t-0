@@ -70,7 +70,19 @@ The browser page should stay a terminal surface. Workspace/app selection is movi
 
 The TUI scans `MC_WORKSPACE_ROOT` (default `~/dev` or `$HOME`), shows repos centered in the terminal, and supports keyboard and mouse input through terminal events. App choices: **Grok**, **Codex**, **Pi**, **Claude**, **Amp**, **Devin**, **Droid**, and **Shell** (keys `1`–`8`, or Tab). Missing CLIs are dimmed.
 
-Workspace selection is ordered by recent use. Each launch writes the selected cwd to:
+### Memory
+
+Stored in `$MC_DATA_DIR/launcher-state.json`:
+
+| Key | Behavior |
+|---|---|
+| (auto) | Last agent per workspace — re-selects when you highlight a repo |
+| `space` | Toggle favorite (filter must be empty); favorites sort first with `★` |
+| `.` | Continue last workspace + agent (filter must be empty) |
+
+List order: **favorites → recents → last cwd → root scan**.
+
+Recents still also write:
 
 ```text
 $MC_DATA_DIR/recent-workspaces.txt
