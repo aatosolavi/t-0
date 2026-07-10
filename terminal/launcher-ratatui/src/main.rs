@@ -33,7 +33,11 @@ use std::os::unix::process::CommandExt;
 const MAX_WIDTH: u16 = 92;
 const MAX_RECENTS: usize = 20;
 const MAX_FAVORITES: usize = 20;
-/// Mission Control accent — orange-500 (#f97316).
+/// Product name (SpaceX-flavored: the pad where agents launch).
+const APP_NAME: &str = "Launchpad";
+/// Splash / brand line.
+const APP_TAGLINE: &str = "all systems go";
+/// Accent — orange-500 (#f97316), a little heat for the pad.
 const ACCENT: Color = Color::Rgb(249, 115, 22);
 /// Text on filled accent chips (dark enough for contrast on orange).
 const ACCENT_ON: Color = Color::Rgb(23, 23, 23);
@@ -818,7 +822,7 @@ fn run_splash(
 fn draw_splash(frame: &mut Frame<'_>, splash: &Splash) {
     let area = centered_rect(frame.area());
     let block = Block::default()
-        .title(" Mission Control ")
+        .title(format!(" {APP_NAME} "))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray));
     frame.render_widget(block, area);
@@ -842,7 +846,7 @@ fn draw_splash(frame: &mut Frame<'_>, splash: &Splash) {
 
     if elapsed >= SPLASH_WORDMARK_MS {
         let wordmark = Paragraph::new(Line::from(Span::styled(
-            "Mission Control",
+            APP_NAME,
             Style::default()
                 .fg(ACCENT)
                 .add_modifier(Modifier::BOLD),
@@ -853,7 +857,7 @@ fn draw_splash(frame: &mut Frame<'_>, splash: &Splash) {
 
     if elapsed >= SPLASH_TAGLINE_MS {
         let tagline = Paragraph::new(Line::from(Span::styled(
-            "finder for agents",
+            APP_TAGLINE,
             Style::default().fg(Color::Gray),
         )))
         .alignment(ratatui::layout::Alignment::Center);
@@ -1019,7 +1023,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
 fn draw(frame: &mut Frame<'_>, app: &mut App) {
     let area = centered_rect(frame.area());
     let block = Block::default()
-        .title(" Mission Control ")
+        .title(format!(" {APP_NAME} "))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray));
     frame.render_widget(block, area);
@@ -1037,7 +1041,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         .split(inner);
 
     let title = Line::from(vec![
-        Span::styled("Open ", Style::default().fg(Color::Gray)),
+        Span::styled("Launch ", Style::default().fg(Color::Gray)),
         Span::styled(
             app.selected_action.label(),
             Style::default()
@@ -1083,7 +1087,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
 fn draw_settings(frame: &mut Frame<'_>, app: &mut App) {
     let area = centered_rect(frame.area());
     let block = Block::default()
-        .title(" Mission Control · Settings ")
+        .title(format!(" {APP_NAME} · Settings "))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray));
     frame.render_widget(block, area);
@@ -1818,7 +1822,7 @@ fn run_child_app(launch: Launch) -> io::Result<()> {
                 .env_command_key()
                 .unwrap_or("MC_*_COMMAND"),
         );
-        eprintln!("Press enter to return to Mission Control...");
+        eprintln!("Press enter to return to {APP_NAME}...");
         let mut input = String::new();
         let _ = io::stdin().read_line(&mut input);
         return Ok(());
@@ -1832,7 +1836,7 @@ fn run_child_app(launch: Launch) -> io::Result<()> {
 
     if !status.success() {
         eprintln!("[{} exited with {}]", launch.action.label(), status);
-        eprintln!("Press enter to return to Mission Control...");
+        eprintln!("Press enter to return to {APP_NAME}...");
         let mut input = String::new();
         let _ = io::stdin().read_line(&mut input);
     }

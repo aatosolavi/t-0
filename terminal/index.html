@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Terminal</title>
+  <title>Launchpad</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;700&display=swap">
@@ -326,12 +326,12 @@
         const { CanvasAddon } = await import('https://esm.sh/@xterm/addon-canvas@0.7.0');
         canvasAddon = new CanvasAddon();
         term.loadAddon(canvasAddon);
-        console.log('%c[Mission Control] renderer: canvas (forced)', 'color:#555');
+        console.log('%c[Launchpad] renderer: canvas (forced)', 'color:#555');
       } else {
-        console.log('%c[Mission Control] renderer: DOM', 'color:#555');
+        console.log('%c[Launchpad] renderer: DOM', 'color:#555');
       }
     } catch (error) {
-      console.warn('[Mission Control] canvas renderer failed; using DOM renderer', error);
+      console.warn('[Launchpad] canvas renderer failed; using DOM renderer', error);
     }
 
     const cursorProbeClasses = [
@@ -569,7 +569,7 @@
           grabFocus();
         }
       } catch (error) {
-        console.error('[Mission Control] file drop failed', error);
+        console.error('[Launchpad] file drop failed', error);
         term.write(`\r\n[file attach failed: ${error?.message || error}]\r\n`);
       }
     });
@@ -616,7 +616,7 @@
 
     // Keyboard hint (optional)
     console.log(
-      '%c[Mission Control] xterm.js + real local PTY ready. Orange accent. Theme: system/light/dark via ?theme= or ⌘/Ctrl+Shift+L. ANSI/truecolor left to the PTY.',
+      '%c[Launchpad] xterm.js + real local PTY ready. Orange accent. Theme: system/light/dark via ?theme= or ⌘/Ctrl+Shift+L. ANSI/truecolor left to the PTY.',
       'color:#f97316',
     );
   </script>

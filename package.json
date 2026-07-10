@@ -2,7 +2,7 @@
   "name": "mission-control",
   "version": "0.1.0",
   "private": true,
-  "description": "Browser terminal + agent launcher — a real local PTY in a tab",
+  "description": "Launchpad — browser terminal + agent pad (real local PTY in a tab)",
   "scripts": {
     "terminal": "node terminal/start.mjs",
     "terminal:pty": "node terminal/pty-server.mjs",

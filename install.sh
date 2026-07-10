@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Mission Control — quick install (macOS-first)
+# Launchpad (mission-control) — quick install (macOS-first)
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/aatosolavi/mission-control/main/install.sh | bash
 # Or:
@@ -17,7 +17,7 @@ else
   INSTALL_DIR="${HOME}/mission-control"
 fi
 
-echo "→ Mission Control install"
+echo "→ Launchpad install"
 echo "  dir: $INSTALL_DIR"
 
 need() {
@@ -55,7 +55,7 @@ echo "→ Build launcher + LaunchAgent"
 bun run terminal:install
 
 echo ""
-echo "✓ Mission Control is installed"
+echo "✓ Launchpad is installed"
 echo "  Open:  http://127.0.0.1:4321"
 echo "  Logs:  ~/.mission-control/logs/ (or ~/.grok-mission-control/logs if you still use the legacy data dir)"
 echo "  Helium: load extension/ as an unpacked extension for Cmd+T → terminal"

@@ -50,7 +50,7 @@ function getHtml(): string {
   try {
     return readFileSync(resolve(currentDir, "index.html"), "utf8");
   } catch {
-    return "<h1>Mission Control</h1><p>index.html not found next to server.ts</p>";
+    return "<h1>Launchpad</h1><p>index.html not found next to server.ts</p>";
   }
 }
 
@@ -113,7 +113,7 @@ const server = Bun.serve({
 
 const openHost = HOST === "0.0.0.0" ? "127.0.0.1" : HOST;
 console.log("");
-console.log("Mission Control HTML server ready (Bun)");
+console.log("Launchpad HTML server ready (Bun)");
 console.log(`    Open http://${openHost}:${PORT}`);
 console.log("");
 console.log("   The real PTY lives in a separate Node process (terminal/pty-server.mjs on :4322).");

@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping with Mission Control.
+Thanks for helping with Launchpad (repo: mission-control).
 
 ## Product rule
 

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Mission Control",
+  "name": "Launchpad",
   "version": "0.2.0",
-  "description": "Real terminal as a browser tab for Helium (xterm.js + local PTY). Minimal MVP of the Mission Control vision.",
+  "description": "Launchpad — real terminal as a browser tab (xterm.js + local PTY). Pick a workspace, launch an agent.",
   "chrome_url_overrides": {
     "newtab": "newtab.html"
   },
@@ -12,6 +12,6 @@
   "permissions": ["tabs", "scripting", "storage"],
   "host_permissions": ["<all_urls>"],
   "action": {
-    "default_title": "Start Mission from this page"
+    "default_title": "Open Launchpad"
   }
 }

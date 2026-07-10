@@ -1,6 +1,6 @@
 # Security
 
-Mission Control is a **local full shell** in the browser.
+Launchpad is a **local full shell** in the browser.
 
 ## Threat model
 
@@ -19,4 +19,4 @@ If you find a vulnerability (for example remote bind regressions, path traversal
 
 ## Attachments
 
-Dropped files are written under the Mission Control data directory (`~/.mission-control/attachments` or legacy `~/.grok-mission-control/attachments`). Paths are returned to the PTY for you to use; treat untrusted drops carefully.
+Dropped files are written under the data directory (`~/.mission-control/attachments` or legacy `~/.grok-mission-control/attachments`). Paths are returned to the PTY for you to use; treat untrusted drops carefully.

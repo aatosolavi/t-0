@@ -1,6 +1,6 @@
 # Browser Terminal Notes
 
-Mission Control is a real local shell inside a browser tab:
+**Launchpad** is a real local shell inside a browser tab:
 
 - HTML server: `http://127.0.0.1:4321` (bind host configurable via `MC_BIND_HOST`)
 - PTY broker: `ws://127.0.0.1:4322`
@@ -72,7 +72,7 @@ The TUI scans `MC_WORKSPACE_ROOT` (default `~/dev` or `$HOME`), shows repos cent
 
 ### Cold-start splash
 
-On **process start** of `mc` (new tab / new PTY), a short branded splash uses the same bordered panel + orange accent as the picker. It does **not** reappear when an agent exits back to the launcher. Any key skips. Disable: `MC_SPLASH=0`.
+On **process start** of `mc` (new tab / new PTY), a short **Launchpad** splash uses the same bordered panel + orange accent as the picker. It does **not** reappear when an agent exits back to the launcher. Any key skips. Disable: `MC_SPLASH=0`.
 
 ### Memory
 
@@ -98,6 +98,11 @@ List order: **favorites → recents → last cwd → root scan**.
 
 App chip **Cursor** launches the **Cursor Agent** CLI (`agent` / `cursor-agent`). The shell command `cursor` on many installs is only a shim and does not open the IDE.
 
+## Branding
+
+User-facing name: **Launchpad** (SpaceX pad energy — agents launch from here).  
+Repo / package / data dir / `mc` binary keep `mission-control` paths for continuity.
+
 ### Git row metadata
 
 Each git workspace shows **branch**, **`*`** when dirty, and **`↑N`** commits ahead of upstream when available. Remembered agent name is shown on the row in the accent color.
@@ -108,7 +113,7 @@ Recents still also write:
 $MC_DATA_DIR/recent-workspaces.txt
 ```
 
-Typing normal characters filters workspace names and paths live. `Backspace` edits the filter, and `Esc` clears the filter before closing the launcher. From a shell, run `mc` to open Mission Control again.
+Typing normal characters filters workspace names and paths live. `Backspace` edits the filter, and `Esc` clears the filter before closing the launcher. From a shell, run `mc` to open Launchpad again.
 
 `?cwd=/absolute/path` still bypasses the launcher and starts a shell directly in that path. That keeps direct deep links useful.
 

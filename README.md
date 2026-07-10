@@ -1,12 +1,14 @@
-# Mission Control
+# Launchpad
 
-**A real local terminal in a browser tab** — plus a Finder-style launcher for workspaces and coding agents.
+**A real local terminal in a browser tab** — plus a SpaceX-flavored pad for workspaces and coding agents.
 
-Open a tab. Get a full PTY. Pick a workspace. Launch Claude, Codex, Pi, Grok, Amp, Devin, Droid, or a plain shell.
+Open a tab. Get a full PTY. Pick a workspace. Launch Claude, Codex, Pi, Cursor, Grok, Amp, Devin, Droid, or a plain shell.
 
-> Finder for workspaces — double-click opens an agent, not a folder.
+> All systems go — workspaces in, agents out.
 
-![Mission Control](https://img.shields.io/badge/local--first-orange) ![MIT](https://img.shields.io/badge/license-MIT-blue)
+![Launchpad](https://img.shields.io/badge/local--first-orange) ![MIT](https://img.shields.io/badge/license-MIT-blue)
+
+> **Repo / CLI still named `mission-control` / `mc` for continuity.** The product UI is **Launchpad**.
 
 ## Install (macOS)
 
@@ -85,7 +87,7 @@ Missing CLIs are **dimmed**. From any shell: run `mc` again.
 
 **Git rows:** branch, `*` dirty, `↑N` ahead; remembered agent on the row.
 
-> Note: the `cursor` shell shim on many machines is for **Cursor Agent**, not the IDE. Mission Control opens **Cursor.app** for `e`, and launches **`agent`** for the Cursor app chip.
+> Note: the `cursor` shell shim on many machines is for **Cursor Agent**, not the IDE. Launchpad opens **Cursor.app** for `e`, and launches **`agent`** for the Cursor app chip.
 
 ### Themes
 
@@ -107,7 +109,7 @@ Data, logs, attachments, and the `mc` binary live under the data dir.
 
 1. `chrome://extensions` → Developer mode  
 2. Load unpacked → select `extension/`  
-3. Cmd+T → Mission Control (when the server is running)
+3. Cmd+T → Launchpad (when the server is running)
 
 ## Security
 
@@ -127,7 +129,7 @@ This is a **full shell as your user** on localhost. Do not expose ports 4321/432
 
 ## Status
 
-Terminal-first, local-first, open source (MIT). Built for people who live in agent CLIs and want tabs that feel like Finder for work.
+Terminal-first, local-first, open source (MIT). Built for people who live in agent CLIs and want a launch pad, not another dashboard.
 
 ## License
 
