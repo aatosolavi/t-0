@@ -43,6 +43,11 @@ Set `GROK_TERMINAL_USE_LAUNCHER=0` to force the old shell-first behavior.
 - `enter`: open
 - `.` (filter empty): continue last workspace + agent
 - `space` (filter empty): toggle favorite (`★` at top)
+- `e` (filter empty): open in editor
+- `f` (filter empty): open in Finder
+- `c` (filter empty): copy path
+- `g` (filter empty): open GitHub / origin remote
+- rows show git branch (`*` dirty, `↑N` ahead) and remembered agent
 - mouse wheel: move through workspaces
 - click an app name: choose app
 - click a workspace once: select

@@ -72,6 +72,10 @@ Missing CLIs are **dimmed**. From any shell: run `mc` again.
 - **`space`** (empty filter) toggles **favorite** — favorites float to the top (`★`)
 - **`.`** (empty filter) **continues last** workspace + agent
 
+**Side actions** (filter empty): **`e`** editor · **`f`** Finder · **`c`** copy path · **`g`** GitHub  
+
+**Git rows:** branch name, `*` if dirty, `↑N` if ahead of upstream; remembered agent shown on the row.
+
 ### Themes
 
 - `?theme=light` · `?theme=dark` · `?theme=system`

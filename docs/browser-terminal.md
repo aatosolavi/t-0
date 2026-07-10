@@ -82,6 +82,19 @@ Stored in `$MC_DATA_DIR/launcher-state.json`:
 
 List order: **favorites → recents → last cwd → root scan**.
 
+### Side actions (filter empty)
+
+| Key | Action |
+|---|---|
+| `e` | Open workspace in editor (`MC_EDITOR` / `VISUAL` / `EDITOR`, then cursor/code/…) |
+| `f` | Reveal in Finder (`open`) |
+| `c` | Copy absolute path (`pbcopy`) |
+| `g` | Open `origin` remote in the browser (GitHub-style URLs) |
+
+### Git row metadata
+
+Each git workspace shows **branch**, **`*`** when dirty, and **`↑N`** commits ahead of upstream when available. Remembered agent name is shown on the row in the accent color.
+
 Recents still also write:
 
 ```text

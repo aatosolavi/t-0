@@ -43,6 +43,10 @@ struct Repo {
     name: String,
     path: PathBuf,
     badge: &'static str,
+    git_branch: Option<String>,
+    git_dirty: bool,
+    git_ahead: u32,
+    remembered_agent: Option<Action>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -362,6 +366,8 @@ struct App {
     filter: String,
     offset: usize,
     hitboxes: UiHitboxes,
+    /// Ephemeral footer flash for side actions (copy, open, errors).
+    status: Option<String>,
 }
 
 impl App {
@@ -378,9 +384,18 @@ impl App {
             filter: String::new(),
             offset: 0,
             hitboxes: UiHitboxes::default(),
+            status: None,
         };
         app.apply_agent_memory();
         app
+    }
+
+    fn set_status(&mut self, message: impl Into<String>) {
+        self.status = Some(message.into());
+    }
+
+    fn clear_status(&mut self) {
+        self.status = None;
     }
 
     fn selected_repo(&self) -> Option<&Repo> {
@@ -515,6 +530,41 @@ impl App {
             self.state.remember_launch(&launch.cwd, launch.action);
         }
     }
+
+    /// Side actions stay in the launcher (Finder muscle memory).
+    fn run_side_action(&mut self, kind: SideAction) {
+        let Some(repo) = self.selected_repo().map(|r| r.clone()) else {
+            self.set_status("no workspace selected");
+            return;
+        };
+
+        match kind {
+            SideAction::Editor => match open_in_editor(&repo.path) {
+                Ok(label) => self.set_status(format!("opened in {label}")),
+                Err(err) => self.set_status(err),
+            },
+            SideAction::Finder => match open_in_finder(&repo.path) {
+                Ok(()) => self.set_status("opened in Finder"),
+                Err(err) => self.set_status(err),
+            },
+            SideAction::CopyPath => match copy_path_to_clipboard(&repo.path) {
+                Ok(()) => self.set_status(format!("copied {}", display_path(&repo.path))),
+                Err(err) => self.set_status(err),
+            },
+            SideAction::GitHub => match open_github(&repo.path) {
+                Ok(url) => self.set_status(format!("opened {url}")),
+                Err(err) => self.set_status(err),
+            },
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum SideAction {
+    Editor,
+    Finder,
+    CopyPath,
+    GitHub,
 }
 
 fn main() -> io::Result<()> {
@@ -587,15 +637,33 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                     app.select_action_by_number(value.to_digit(10).unwrap_or(0) as u8);
                 }
                 KeyCode::Char(' ') if app.filter.is_empty() => {
+                    app.clear_status();
                     app.toggle_favorite_selected();
                 }
                 KeyCode::Char('.') if app.filter.is_empty() => {
+                    app.clear_status();
                     if let Some(launch) = app.state.continue_last() {
                         app.prepare_launch(&launch);
                         return Ok(Some(launch));
                     }
+                    app.set_status("no last session — open something with enter first");
                 }
-                KeyCode::Char(value) => app.push_filter_char(value),
+                KeyCode::Char('e') | KeyCode::Char('E') if app.filter.is_empty() => {
+                    app.run_side_action(SideAction::Editor);
+                }
+                KeyCode::Char('f') | KeyCode::Char('F') if app.filter.is_empty() => {
+                    app.run_side_action(SideAction::Finder);
+                }
+                KeyCode::Char('c') | KeyCode::Char('C') if app.filter.is_empty() => {
+                    app.run_side_action(SideAction::CopyPath);
+                }
+                KeyCode::Char('g') | KeyCode::Char('G') if app.filter.is_empty() => {
+                    app.run_side_action(SideAction::GitHub);
+                }
+                KeyCode::Char(value) => {
+                    app.clear_status();
+                    app.push_filter_char(value);
+                }
                 _ => {}
             },
             Event::Mouse(mouse) => match mouse.kind {
@@ -671,12 +739,20 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     draw_filter(frame, app, chunks[2]);
     draw_repos(frame, app, chunks[3]);
 
+    let footer_second = if let Some(status) = &app.status {
+        Line::from(Span::styled(status.clone(), Style::default().fg(ACCENT)))
+    } else {
+        Line::from(Span::styled(
+            "e editor · f Finder · c copy · g GitHub · dim app = missing CLI",
+            Style::default().fg(Color::DarkGray),
+        ))
+    };
     let footer = Paragraph::new(vec![
         Line::from(vec![
             Span::styled("enter", Style::default().fg(Color::White)),
             Span::styled(" open  ", Style::default().fg(Color::DarkGray)),
             Span::styled(".", Style::default().fg(Color::White)),
-            Span::styled(" continue  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(" cont  ", Style::default().fg(Color::DarkGray)),
             Span::styled("space", Style::default().fg(Color::White)),
             Span::styled(" fav  ", Style::default().fg(Color::DarkGray)),
             Span::styled("1-8", Style::default().fg(Color::White)),
@@ -684,10 +760,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
             Span::styled("type", Style::default().fg(Color::White)),
             Span::styled(" filter", Style::default().fg(Color::DarkGray)),
         ]),
-        Line::from(Span::styled(
-            "remembers last agent per workspace · dim app = missing CLI",
-            Style::default().fg(Color::DarkGray),
-        )),
+        footer_second,
     ]);
     frame.render_widget(footer, chunks[4]);
 }
@@ -789,16 +862,50 @@ fn draw_repos(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
             Style::default().fg(Color::DarkGray)
         };
 
-        lines.push(Line::from(vec![
+        // Layout: > name  branch*  agent  path  badge
+        let mut spans = vec![
             Span::styled(format!("{marker} "), Style::default().fg(ACCENT)),
-            Span::styled(pad_or_trim(&repo.name, 24), style),
-            Span::styled("  ", Style::default()),
-            Span::styled(
-                pad_or_trim(&display_path(&repo.path), area.width.saturating_sub(40) as usize),
-                Style::default().fg(Color::DarkGray),
-            ),
-            Span::styled(repo.badge, badge_style),
-        ]));
+            Span::styled(pad_or_trim(&repo.name, 18), style),
+            Span::raw(" "),
+        ];
+
+        if let Some(branch) = &repo.git_branch {
+            let mut branch_label = branch.clone();
+            if repo.git_dirty {
+                branch_label.push('*');
+            }
+            if repo.git_ahead > 0 {
+                branch_label.push_str(&format!("↑{}", repo.git_ahead));
+            }
+            let branch_style = if repo.git_dirty {
+                Style::default().fg(Color::Yellow)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            spans.push(Span::styled(pad_or_trim(&branch_label, 14), branch_style));
+        } else {
+            spans.push(Span::styled(pad_or_trim("", 14), Style::default()));
+        }
+
+        spans.push(Span::raw(" "));
+        if let Some(action) = repo.remembered_agent {
+            spans.push(Span::styled(
+                pad_or_trim(action.label(), 7),
+                Style::default().fg(ACCENT),
+            ));
+        } else {
+            spans.push(Span::styled(pad_or_trim("", 7), Style::default()));
+        }
+
+        spans.push(Span::raw(" "));
+        let path_width = area.width.saturating_sub(50) as usize;
+        spans.push(Span::styled(
+            pad_or_trim(&display_path(&repo.path), path_width),
+            Style::default().fg(Color::DarkGray),
+        ));
+        spans.push(Span::styled(repo.badge, badge_style));
+
+        lines.push(Line::from(spans));
     }
 
     if lines.is_empty() {
@@ -840,21 +947,21 @@ fn discover_repos(state: &LauncherState) -> Vec<Repo> {
 
     // 1) Favorites first (pin order, newest pin first).
     for path in &state.favorites {
-        add_repo(&mut repos, &mut seen, path.clone(), "★");
+        add_repo(&mut repos, &mut seen, path.clone(), "★", state);
     }
 
     // 2) Recents.
     for recent in read_recent_workspaces(&data) {
-        add_repo(&mut repos, &mut seen, recent, "recent");
+        add_repo(&mut repos, &mut seen, recent, "recent", state);
     }
 
     // 3) Last terminal cwd.
     if let Some(last_cwd) = read_last_cwd(&data) {
-        add_repo(&mut repos, &mut seen, last_cwd, "last");
+        add_repo(&mut repos, &mut seen, last_cwd, "last", state);
     }
 
     // 4) Workspace root + git children.
-    add_repo(&mut repos, &mut seen, root.clone(), "root");
+    add_repo(&mut repos, &mut seen, root.clone(), "root", state);
 
     if let Ok(entries) = fs::read_dir(&root) {
         let mut paths: Vec<PathBuf> = entries
@@ -874,18 +981,24 @@ fn discover_repos(state: &LauncherState) -> Vec<Repo> {
         paths.sort_by_key(|path| path.file_name().map(|name| name.to_os_string()));
 
         for path in paths {
-            add_repo(&mut repos, &mut seen, path, "");
+            add_repo(&mut repos, &mut seen, path, "", state);
         }
     }
 
     if repos.is_empty() {
-        add_repo(&mut repos, &mut seen, home, "home");
+        add_repo(&mut repos, &mut seen, home, "home", state);
     }
 
     repos
 }
 
-fn add_repo(repos: &mut Vec<Repo>, seen: &mut HashSet<PathBuf>, path: PathBuf, badge: &'static str) {
+fn add_repo(
+    repos: &mut Vec<Repo>,
+    seen: &mut HashSet<PathBuf>,
+    path: PathBuf,
+    badge: &'static str,
+    state: &LauncherState,
+) {
     if !path.is_dir() || !seen.insert(path.clone()) {
         return;
     }
@@ -894,7 +1007,188 @@ fn add_repo(repos: &mut Vec<Repo>, seen: &mut HashSet<PathBuf>, path: PathBuf, b
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.display().to_string());
-    repos.push(Repo { name, path, badge });
+    let (git_branch, git_dirty, git_ahead) = inspect_git(&path);
+    let remembered_agent = state.agent_for(&path);
+    repos.push(Repo {
+        name,
+        path,
+        badge,
+        git_branch,
+        git_dirty,
+        git_ahead,
+        remembered_agent,
+    });
+}
+
+/// Fast-ish git snapshot for row metadata. Failures → no git badge.
+fn inspect_git(path: &Path) -> (Option<String>, bool, u32) {
+    if !path.join(".git").exists() {
+        // Also accept worktrees / nested: try rev-parse
+        let ok = Command::new("git")
+            .args(["-C", &path.display().to_string(), "rev-parse", "--is-inside-work-tree"])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !ok {
+            return (None, false, 0);
+        }
+    }
+
+    let path_str = path.display().to_string();
+
+    let branch = Command::new("git")
+        .args(["-C", &path_str, "rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty() && s != "HEAD");
+
+    let dirty = Command::new("git")
+        .args(["-C", &path_str, "status", "--porcelain"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| !o.stdout.is_empty())
+        .unwrap_or(false);
+
+    let ahead = Command::new("git")
+        .args(["-C", &path_str, "rev-list", "--count", "@{u}..HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .trim()
+                .parse::<u32>()
+                .ok()
+        })
+        .unwrap_or(0);
+
+    (branch, dirty, ahead)
+}
+
+fn open_in_finder(path: &Path) -> Result<(), String> {
+    let status = Command::new("open")
+        .arg(path)
+        .status()
+        .map_err(|e| format!("Finder: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("Finder: open failed".into())
+    }
+}
+
+fn copy_path_to_clipboard(path: &Path) -> Result<(), String> {
+    let text = path.display().to_string();
+    let mut child = Command::new("pbcopy")
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("pbcopy: {e}"))?;
+    use std::io::Write;
+    if let Some(stdin) = child.stdin.as_mut() {
+        stdin
+            .write_all(text.as_bytes())
+            .map_err(|e| format!("pbcopy write: {e}"))?;
+    }
+    let status = child.wait().map_err(|e| format!("pbcopy: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("pbcopy failed".into())
+    }
+}
+
+fn open_in_editor(path: &Path) -> Result<String, String> {
+    let path_str = path.display().to_string();
+    let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+
+    // Prefer explicit env (supports multi-word like `cursor -g`). GUI CLIs next.
+    for key in ["MC_EDITOR", "VISUAL", "EDITOR"] {
+        if let Ok(cmd) = env::var(key) {
+            let cmd = cmd.trim();
+            if cmd.is_empty() {
+                continue;
+            }
+            // Quote path for the shell; leave the command as the user wrote it.
+            let script = format!("{cmd} '{path_str}'");
+            if Command::new(&shell)
+                .args(["-lc", &script])
+                .spawn()
+                .is_ok()
+            {
+                return Ok(cmd.to_string());
+            }
+        }
+    }
+
+    for bin in ["cursor", "code", "subl", "zed"] {
+        if command_available(bin) && Command::new(bin).arg(&path_str).spawn().is_ok() {
+            return Ok(bin.into());
+        }
+    }
+
+    for app in ["Cursor", "Visual Studio Code", "Zed"] {
+        let status = Command::new("open")
+            .args(["-a", app, &path_str])
+            .status();
+        if matches!(status, Ok(s) if s.success()) {
+            return Ok(app.into());
+        }
+    }
+
+    Err("no editor found (set MC_EDITOR or install cursor/code)".into())
+}
+
+fn open_github(path: &Path) -> Result<String, String> {
+    let path_str = path.display().to_string();
+    let output = Command::new("git")
+        .args(["-C", &path_str, "remote", "get-url", "origin"])
+        .output()
+        .map_err(|e| format!("git: {e}"))?;
+    if !output.status.success() {
+        return Err("no git remote 'origin'".into());
+    }
+    let remote = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if remote.is_empty() {
+        return Err("empty origin url".into());
+    }
+    let url = remote_to_https(&remote).ok_or_else(|| format!("unsupported remote: {remote}"))?;
+    let status = Command::new("open")
+        .arg(&url)
+        .status()
+        .map_err(|e| format!("open: {e}"))?;
+    if status.success() {
+        Ok(url)
+    } else {
+        Err("failed to open browser".into())
+    }
+}
+
+/// git@github.com:org/repo.git → https://github.com/org/repo
+fn remote_to_https(remote: &str) -> Option<String> {
+    let remote = remote.trim().trim_end_matches(".git");
+    if let Some(rest) = remote.strip_prefix("git@github.com:") {
+        return Some(format!("https://github.com/{rest}"));
+    }
+    if let Some(rest) = remote.strip_prefix("ssh://git@github.com/") {
+        return Some(format!("https://github.com/{rest}"));
+    }
+    if remote.starts_with("https://github.com/") || remote.starts_with("http://github.com/") {
+        return Some(remote.to_string());
+    }
+    // Generic https remotes: open as-is
+    if remote.starts_with("https://") || remote.starts_with("http://") {
+        return Some(remote.to_string());
+    }
+    // git@host:path
+    if let Some((user_host, path)) = remote.split_once(':') {
+        if let Some(host) = user_host.strip_prefix("git@") {
+            return Some(format!("https://{host}/{path}"));
+        }
+    }
+    None
 }
 
 fn launcher_state_path() -> PathBuf {
