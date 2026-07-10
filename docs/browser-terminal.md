@@ -70,6 +70,10 @@ The browser page should stay a terminal surface. Workspace/app selection is movi
 
 The TUI scans `MC_WORKSPACE_ROOT` (default `~/dev` or `$HOME`), shows repos centered in the terminal, and supports keyboard and mouse input through terminal events. App choices: **Grok**, **Codex**, **Pi**, **Claude**, **Amp**, **Devin**, **Droid**, and **Shell** (keys `1`–`8`, or Tab). Missing CLIs are dimmed.
 
+### Cold-start splash
+
+On **process start** of `mc` (new tab / new PTY), a short branded splash uses the same bordered panel + orange accent as the picker. It does **not** reappear when an agent exits back to the launcher. Any key skips. Disable: `MC_SPLASH=0`.
+
 ### Memory
 
 Stored in `$MC_DATA_DIR/launcher-state.json`:

@@ -25,6 +25,8 @@ terminal/launcher-ratatui/target/release/mc
 
 Set `GROK_TERMINAL_USE_LAUNCHER=0` to force the old shell-first behavior.
 
+Cold-start splash (once per `mc` process, skipped when returning from an agent). Disable with `MC_SPLASH=0`.
+
 ## Controls
 
 - type characters: filter workspaces by name or path

@@ -5,7 +5,7 @@ use std::{
     io::{self, stdout},
     path::{Path, PathBuf},
     process::Command,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crossterm::{
@@ -568,15 +568,23 @@ enum SideAction {
 }
 
 fn main() -> io::Result<()> {
-    let mut out = stdout();
+    let mut first_ui = true;
 
     loop {
         enable_raw_mode()?;
-        execute!(out, EnterAlternateScreen, EnableMouseCapture)?;
+        execute!(stdout(), EnterAlternateScreen, EnableMouseCapture)?;
 
-        let backend = CrosstermBackend::new(out);
+        let backend = CrosstermBackend::new(stdout());
         let mut terminal = Terminal::new(backend)?;
         terminal.clear()?;
+
+        // Cold start only: once per `mc` process, not when returning from an agent.
+        if first_ui {
+            first_ui = false;
+            if splash_enabled() {
+                let _ = run_splash(&mut terminal);
+            }
+        }
 
         let launch = run_app(&mut terminal);
 
@@ -599,9 +607,148 @@ fn main() -> io::Result<()> {
             }
             None => return Ok(()),
         }
-
-        out = stdout();
     }
+}
+
+/// Splash runs unless MC_SPLASH is 0 / off / false.
+fn splash_enabled() -> bool {
+    match env::var("MC_SPLASH") {
+        Ok(value) => {
+            let v = value.trim().to_ascii_lowercase();
+            !(v == "0" || v == "off" || v == "false" || v == "no")
+        }
+        Err(_) => true,
+    }
+}
+
+const SPLASH_TOTAL_MS: u64 = 750;
+const SPLASH_WORDMARK_MS: u64 = 120;
+const SPLASH_TAGLINE_MS: u64 = 280;
+const SPLASH_RULE_START_MS: u64 = 450;
+const SPLASH_RULE_END_MS: u64 = 600;
+
+struct Splash {
+    started: Instant,
+}
+
+impl Splash {
+    fn new() -> Self {
+        Self {
+            started: Instant::now(),
+        }
+    }
+
+    fn elapsed_ms(&self) -> u64 {
+        self.started.elapsed().as_millis() as u64
+    }
+
+    fn done(&self) -> bool {
+        self.elapsed_ms() >= SPLASH_TOTAL_MS
+    }
+
+    fn rule_progress(&self) -> f32 {
+        let t = self.elapsed_ms();
+        if t < SPLASH_RULE_START_MS {
+            return 0.0;
+        }
+        if t >= SPLASH_RULE_END_MS {
+            return 1.0;
+        }
+        (t - SPLASH_RULE_START_MS) as f32 / (SPLASH_RULE_END_MS - SPLASH_RULE_START_MS) as f32
+    }
+}
+
+fn run_splash(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+) -> io::Result<()> {
+    let splash = Splash::new();
+
+    loop {
+        terminal.draw(|frame| draw_splash(frame, &splash))?;
+
+        if splash.done() {
+            return Ok(());
+        }
+
+        if event::poll(Duration::from_millis(16))? {
+            match event::read()? {
+                Event::Key(key) if key.kind == KeyEventKind::Press => return Ok(()),
+                Event::Mouse(mouse) if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) => {
+                    return Ok(());
+                }
+                Event::Resize(_, _) => {}
+                _ => {}
+            }
+        }
+    }
+}
+
+fn draw_splash(frame: &mut Frame<'_>, splash: &Splash) {
+    let area = centered_rect(frame.area());
+    let block = Block::default()
+        .title(" Mission Control ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+    frame.render_widget(block, area);
+
+    let inner = inset(area, 2, 1);
+    let elapsed = splash.elapsed_ms();
+
+    // Vertical stack: spacer / wordmark / tagline / rule / spacer / skip
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+
+    if elapsed >= SPLASH_WORDMARK_MS {
+        let wordmark = Paragraph::new(Line::from(Span::styled(
+            "Mission Control",
+            Style::default()
+                .fg(ACCENT)
+                .add_modifier(Modifier::BOLD),
+        )))
+        .alignment(ratatui::layout::Alignment::Center);
+        frame.render_widget(wordmark, chunks[1]);
+    }
+
+    if elapsed >= SPLASH_TAGLINE_MS {
+        let tagline = Paragraph::new(Line::from(Span::styled(
+            "finder for agents",
+            Style::default().fg(Color::Gray),
+        )))
+        .alignment(ratatui::layout::Alignment::Center);
+        frame.render_widget(tagline, chunks[2]);
+    }
+
+    // Accent rule grows left → right under the tagline.
+    let progress = splash.rule_progress();
+    if progress > 0.0 {
+        let max_rule = (inner.width as usize / 2).clamp(8, 28);
+        let len = ((max_rule as f32) * progress).round() as usize;
+        let len = len.max(1).min(max_rule);
+        let rule = "─".repeat(len);
+        let rule_widget = Paragraph::new(Line::from(Span::styled(
+            rule,
+            Style::default().fg(ACCENT),
+        )))
+        .alignment(ratatui::layout::Alignment::Center);
+        frame.render_widget(rule_widget, chunks[3]);
+    }
+
+    let skip = Paragraph::new(Line::from(Span::styled(
+        "any key skip",
+        Style::default().fg(Color::DarkGray),
+    )))
+    .alignment(ratatui::layout::Alignment::Center);
+    frame.render_widget(skip, chunks[6]);
 }
 
 fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<Option<Launch>> {
