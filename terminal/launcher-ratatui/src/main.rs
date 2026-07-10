@@ -218,17 +218,31 @@ struct SettingsFile {
     /// Action id, e.g. "grok", "cursor", "pi"
     #[serde(default)]
     default_agent: Option<String>,
+    /// macOS app name for `e` (open -a), e.g. "Cursor", "Visual Studio Code".
+    /// None / "auto" = first installed from IDE_OPTIONS.
+    #[serde(default)]
+    default_ide: Option<String>,
 }
 
 fn default_true() -> bool {
     true
 }
 
+/// Cycle order for Settings → Default IDE (`e` key).
+const IDE_OPTIONS: &[&str] = &[
+    "auto",
+    "Cursor",
+    "Visual Studio Code",
+    "Zed",
+    "Windsurf",
+];
+
 impl Default for SettingsFile {
     fn default() -> Self {
         Self {
             splash: true,
             default_agent: None,
+            default_ide: None,
         }
     }
 }
@@ -468,7 +482,8 @@ impl App {
     }
 
     fn settings_item_count() -> usize {
-        4 // splash, default agent, data dir (ro), workspace root (ro)
+        // splash, default agent, default IDE, data dir (ro), workspace root (ro)
+        5
     }
 
     fn set_status(&mut self, message: impl Into<String>) {
@@ -553,6 +568,27 @@ impl App {
                 self.state.settings.default_agent = Some(next.id().to_string());
                 self.state.save();
                 self.set_status(format!("default agent: {}", next.label()));
+            }
+            2 => {
+                let current = self
+                    .state
+                    .settings
+                    .default_ide
+                    .as_deref()
+                    .unwrap_or("auto");
+                let idx = IDE_OPTIONS
+                    .iter()
+                    .position(|name| *name == current)
+                    .map(|i| (i + 1) % IDE_OPTIONS.len())
+                    .unwrap_or(0);
+                let next = IDE_OPTIONS[idx];
+                self.state.settings.default_ide = if next == "auto" {
+                    None
+                } else {
+                    Some(next.to_string())
+                };
+                self.state.save();
+                self.set_status(format!("default IDE: {next}"));
             }
             _ => {}
         }
@@ -677,10 +713,14 @@ impl App {
         };
 
         match kind {
-            SideAction::Editor => match open_in_editor(&repo.path) {
-                Ok(label) => self.set_status(format!("opened in {label}")),
-                Err(err) => self.set_status(err),
-            },
+            SideAction::Editor => {
+                // Silent success — no "opened in …" flash; errors still surface.
+                if let Err(err) =
+                    open_in_editor(&repo.path, self.state.settings.default_ide.as_deref())
+                {
+                    self.set_status(err);
+                }
+            }
             SideAction::Finder => match open_in_finder(&repo.path) {
                 Ok(()) => self.set_status("opened in Finder"),
                 Err(err) => self.set_status(err),
@@ -1123,10 +1163,17 @@ fn draw_settings(frame: &mut Frame<'_>, app: &mut App) {
         .and_then(Action::from_id)
         .map(|a| a.label())
         .unwrap_or("auto (first available)");
+    let default_ide = app
+        .state
+        .settings
+        .default_ide
+        .as_deref()
+        .unwrap_or("auto");
 
     let rows = [
         format!("Splash (cold start)     {splash}"),
         format!("Default agent           {default_agent}"),
+        format!("Default IDE (e)         {default_ide}"),
         format!("Data dir                {}", display_path(&data_dir())),
         format!("Workspace root          {}", display_path(&workspace_root())),
     ];
@@ -1139,7 +1186,7 @@ fn draw_settings(frame: &mut Frame<'_>, app: &mut App) {
                 .fg(ACCENT_ON)
                 .bg(ACCENT)
                 .add_modifier(Modifier::BOLD)
-        } else if i >= 2 {
+        } else if i >= 3 {
             Style::default().fg(Color::DarkGray)
         } else {
             Style::default().fg(Color::Gray)
@@ -1149,17 +1196,16 @@ fn draw_settings(frame: &mut Frame<'_>, app: &mut App) {
     }
     frame.render_widget(Paragraph::new(lines), chunks[1]);
 
-    let hint = app
-        .status
-        .clone()
-        .unwrap_or_else(|| "e opens the folder in Cursor/IDE — not the Cursor agent".into());
-    frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            hint,
-            Style::default().fg(ACCENT),
-        ))),
-        chunks[2],
-    );
+    // Only show ephemeral status flashes here (no permanent "e opens…" tip).
+    if let Some(status) = &app.status {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                status.clone(),
+                Style::default().fg(ACCENT),
+            ))),
+            chunks[2],
+        );
+    }
 }
 
 fn draw_actions(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
@@ -1499,13 +1545,13 @@ fn copy_path_to_clipboard(path: &Path) -> Result<(), String> {
 
 /// Open the workspace folder in a GUI editor / IDE.
 ///
-/// Note: on many machines `~/.local/bin/cursor` is a **shim for Cursor Agent**, not the IDE.
-/// Prefer `open -a Cursor` when Cursor.app is installed.
-fn open_in_editor(path: &Path) -> Result<String, String> {
+/// Order: `MC_EDITOR` env → settings default IDE → auto-detect apps → CLI fallbacks.
+/// Note: `~/.local/bin/cursor` is often an **agent shim**, not the IDE — we use `open -a`.
+fn open_in_editor(path: &Path, preferred_ide: Option<&str>) -> Result<String, String> {
     let path_str = path.display().to_string();
     let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
 
-    // 1) Explicit editor env (user override).
+    // 1) Explicit editor command env (highest priority).
     for key in ["MC_EDITOR", "VISUAL", "EDITOR"] {
         if let Ok(cmd) = env::var(key) {
             let cmd = cmd.trim();
@@ -1523,7 +1569,23 @@ fn open_in_editor(path: &Path) -> Result<String, String> {
         }
     }
 
-    // 2) macOS app bundles (most reliable for Cursor IDE).
+    let try_open_app = |name: &str| -> bool {
+        Command::new("open")
+            .args(["-a", name, &path_str])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+
+    // 2) User setting: default IDE (macOS app name).
+    if let Some(name) = preferred_ide {
+        let name = name.trim();
+        if !name.is_empty() && name != "auto" && try_open_app(name) {
+            return Ok(name.to_string());
+        }
+    }
+
+    // 3) Auto: known app bundles, then open -a by name.
     let app_candidates = [
         ("Cursor", "/Applications/Cursor.app"),
         ("Visual Studio Code", "/Applications/Visual Studio Code.app"),
@@ -1531,34 +1593,24 @@ fn open_in_editor(path: &Path) -> Result<String, String> {
         ("Windsurf", "/Applications/Windsurf.app"),
     ];
     for (name, app_path) in app_candidates {
-        if Path::new(app_path).exists() {
-            let status = Command::new("open")
-                .args(["-a", name, &path_str])
-                .status();
-            if matches!(status, Ok(s) if s.success()) {
-                return Ok(name.into());
-            }
+        if Path::new(app_path).exists() && try_open_app(name) {
+            return Ok(name.into());
         }
     }
-
-    // 3) Also try open -a even if we didn't find the path (custom install locations).
-    for name in ["Cursor", "Visual Studio Code", "Zed"] {
-        let status = Command::new("open")
-            .args(["-a", name, &path_str])
-            .status();
-        if matches!(status, Ok(s) if s.success()) {
+    for name in ["Cursor", "Visual Studio Code", "Zed", "Windsurf"] {
+        if try_open_app(name) {
             return Ok(name.into());
         }
     }
 
-    // 4) GUI CLIs — skip the broken `cursor` agent-shim; use `code` etc.
+    // 4) GUI CLIs — skip the broken `cursor` agent-shim.
     for bin in ["code", "subl", "zed", "windsurf"] {
         if command_available(bin) && Command::new(bin).arg(&path_str).spawn().is_ok() {
             return Ok(bin.into());
         }
     }
 
-    Err("no IDE found — install Cursor.app or set MC_EDITOR".into())
+    Err("no IDE found — set Default IDE in settings (s) or MC_EDITOR".into())
 }
 
 fn open_github(path: &Path) -> Result<String, String> {

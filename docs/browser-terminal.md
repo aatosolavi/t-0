@@ -94,7 +94,7 @@ List order: **favorites → recents → last cwd → root scan**.
 | `f` | Reveal in Finder (`open`) |
 | `c` | Copy absolute path (`pbcopy`) |
 | `g` | Open `origin` remote in the browser (GitHub-style URLs) |
-| `s` | Settings — splash on/off, default agent |
+| `s` | Settings — splash, default agent, default IDE for `e` |
 
 App chip **Cursor** launches the **Cursor Agent** CLI (`agent` / `cursor-agent`). The shell command `cursor` on many installs is only a shim and does not open the IDE.
 
