@@ -91,7 +91,7 @@ Missing CLIs are **dimmed**. From any shell: run `mc` again.
 | **`f`** | Finder |
 | **`c`** | Copy path |
 | **`g`** | GitHub origin |
-| **`s`** | Settings |
+| **`s`** | Settings (splash, default agent, default IDE for `e`) |
 
 **Git rows:** branch · `*` dirty · `↑N` ahead · remembered agent on the row.
 
