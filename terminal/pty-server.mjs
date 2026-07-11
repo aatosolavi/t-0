@@ -310,7 +310,14 @@ function getSession(id) {
   return session;
 }
 
-function spawnPtyForSession(session, cols, rows, requestedCwd) {
+function normalizeUiTheme(value) {
+  if (typeof value !== "string") return null;
+  const v = value.trim().toLowerCase();
+  if (v === "light" || v === "dark") return v;
+  return null;
+}
+
+function spawnPtyForSession(session, cols, rows, requestedCwd, uiTheme) {
   if (session.ptyProcess) return;
 
   session.pendingCols = Math.max(1, cols);
@@ -321,6 +328,7 @@ function spawnPtyForSession(session, cols, rows, requestedCwd) {
   const command = useLauncher ? LAUNCHER_PATH : SHELL;
   const args = useLauncher ? [] : [];
   const cwd = normalizedCwd && isDirectory(normalizedCwd) ? normalizedCwd : readLastCwd();
+  const theme = normalizeUiTheme(uiTheme) || normalizeUiTheme(session.uiTheme);
   console.log(`[PTY Broker] Spawning ${command} for session ${session.id} at ${cols}x${rows} in ${cwd}`);
 
   try {
@@ -334,6 +342,15 @@ function spawnPtyForSession(session, cols, rows, requestedCwd) {
       TERM_PROGRAM: "xterm.js",
       TERM_PROGRAM_VERSION: process.env.TERM_PROGRAM_VERSION || "5",
     };
+    // Tell the Ratatui launcher which browser theme is active (auto mode).
+    // COLORFGBG: light-fg;dark-bg (15;0) or dark-fg;light-bg (0;15).
+    if (theme === "light") {
+      env.MC_UI_THEME = "light";
+      env.COLORFGBG = "0;15";
+    } else if (theme === "dark") {
+      env.MC_UI_THEME = "dark";
+      env.COLORFGBG = "15;0";
+    }
     delete env.NO_COLOR;
     delete env.TERMINFO;
 
@@ -401,11 +418,13 @@ wss.on("connection", (ws, req) => {
           const cols = typeof msg.cols === "number" ? msg.cols : session.pendingCols;
           const rows = typeof msg.rows === "number" ? msg.rows : session.pendingRows;
           const cwd = typeof msg.cwd === "string" ? msg.cwd : undefined;
+          const theme = normalizeUiTheme(msg.theme);
+          if (theme) session.uiTheme = theme;
           startRequested = true;
           if (session.history) {
             sendToClient(ws, session.history);
           }
-          spawnPtyForSession(session, cols, rows, cwd);
+          spawnPtyForSession(session, cols, rows, cwd, theme);
           return;
         }
 

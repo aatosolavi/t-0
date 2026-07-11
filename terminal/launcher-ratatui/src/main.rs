@@ -224,10 +224,18 @@ struct SettingsFile {
     /// None / "auto" = first installed from IDE_OPTIONS.
     #[serde(default)]
     default_ide: Option<String>,
+    /// "auto" | "dark" | "light" — T-0 panel palette.
+    /// auto follows terminal (COLORFGBG / MC_UI_THEME) then OS appearance.
+    #[serde(default = "default_theme")]
+    ui_theme: String,
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_theme() -> String {
+    "auto".into()
 }
 
 /// Cycle order for Settings → Default IDE (`e` key).
@@ -240,14 +248,166 @@ const IDE_OPTIONS: &[&str] = &[
     "Devin Desktop",
 ];
 
+const UI_THEME_OPTIONS: &[&str] = &["auto", "dark", "light"];
+
 impl Default for SettingsFile {
     fn default() -> Self {
         Self {
             splash: true,
             default_agent: None,
             default_ide: None,
+            ui_theme: default_theme(),
         }
     }
+}
+
+/// Palette that stays readable on both terminal backgrounds.
+#[derive(Clone, Copy)]
+struct Theme {
+    bg: Color,
+    text: Color,
+    muted: Color,
+    dim: Color,
+    key: Color,
+    border: Color,
+    /// Unselected agent chip / list row.
+    soft: Color,
+}
+
+impl Theme {
+    fn dark() -> Self {
+        Self {
+            bg: Color::Rgb(20, 20, 20),
+            text: Color::White,
+            muted: Color::Gray,
+            dim: Color::DarkGray,
+            key: Color::White,
+            border: Color::DarkGray,
+            soft: Color::Gray,
+        }
+    }
+
+    fn light() -> Self {
+        // Stronger contrast than Color::Gray on light terminals.
+        Self {
+            bg: Color::Rgb(250, 250, 250),
+            text: Color::Rgb(23, 23, 23),
+            muted: Color::Rgb(82, 82, 91),   // zinc-600
+            dim: Color::Rgb(113, 113, 122), // zinc-500
+            key: Color::Rgb(24, 24, 27),
+            border: Color::Rgb(161, 161, 170),
+            soft: Color::Rgb(63, 63, 70), // zinc-700
+        }
+    }
+
+    fn from_name(name: &str) -> Self {
+        match resolved_theme_mode(name) {
+            "light" => Self::light(),
+            _ => Self::dark(),
+        }
+    }
+}
+
+/// Resolve preference to concrete `"light"` | `"dark"`.
+fn resolved_theme_mode(preference: &str) -> &'static str {
+    if preference.eq_ignore_ascii_case("light") {
+        return "light";
+    }
+    if preference.eq_ignore_ascii_case("dark") {
+        return "dark";
+    }
+    // auto (or unknown) — detect terminal / OS.
+    if detect_system_is_light() {
+        "light"
+    } else {
+        "dark"
+    }
+}
+
+fn format_theme_label(preference: &str) -> String {
+    if preference.eq_ignore_ascii_case("auto")
+        || (!preference.eq_ignore_ascii_case("light")
+            && !preference.eq_ignore_ascii_case("dark"))
+    {
+        format!("auto ({})", resolved_theme_mode("auto"))
+    } else {
+        preference.to_ascii_lowercase()
+    }
+}
+
+/// Best-effort light/dark detection for `ui_theme = auto`.
+/// Order: MC_UI_THEME → COLORFGBG → macOS appearance → dark.
+fn detect_system_is_light() -> bool {
+    if let Ok(v) = env::var("MC_UI_THEME") {
+        let v = v.trim();
+        if v.eq_ignore_ascii_case("light") {
+            return true;
+        }
+        if v.eq_ignore_ascii_case("dark") {
+            return false;
+        }
+    }
+
+    if let Some(is_light) = colorfgbg_is_light() {
+        return is_light;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        return macos_appearance_is_light();
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
+/// Parse `COLORFGBG` (e.g. `15;0` = light fg / dark bg). Returns None if unset/unparseable.
+fn colorfgbg_is_light() -> Option<bool> {
+    let v = env::var("COLORFGBG").ok()?;
+    let bg = v
+        .split([';', ':'])
+        .filter(|s| !s.is_empty())
+        .last()?
+        .trim()
+        .parse::<u16>()
+        .ok()?;
+    // xterm convention: 7 and 15 are light backgrounds; 0–6 / 8–14 are dark-ish.
+    Some(bg == 7 || bg == 15)
+}
+
+#[cfg(target_os = "macos")]
+fn macos_appearance_is_light() -> bool {
+    use std::sync::Mutex;
+    static CACHE: Mutex<Option<(Instant, bool)>> = Mutex::new(None);
+
+    if let Ok(guard) = CACHE.lock() {
+        if let Some((at, is_light)) = *guard {
+            if at.elapsed() < Duration::from_secs(5) {
+                return is_light;
+            }
+        }
+    }
+
+    // `AppleInterfaceStyle` is "Dark" when dark; the key is missing in light mode.
+    let is_light = match Command::new("defaults")
+        .args(["read", "-g", "AppleInterfaceStyle"])
+        .stderr(Stdio::null())
+        .stdout(Stdio::piped())
+        .output()
+    {
+        Ok(out) => {
+            let s = String::from_utf8_lossy(&out.stdout);
+            !s.trim().eq_ignore_ascii_case("Dark")
+        }
+        Err(_) => false, // fall back dark if defaults unavailable
+    };
+
+    if let Ok(mut guard) = CACHE.lock() {
+        *guard = Some((Instant::now(), is_light));
+    }
+    is_light
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -757,8 +917,12 @@ impl App {
     }
 
     fn settings_item_count() -> usize {
-        // splash, default agent, default IDE, data dir (ro), workspace root (ro)
-        5
+        // splash, default agent, default IDE, ui theme, data dir (ro), workspace root (ro)
+        6
+    }
+
+    fn theme(&self) -> Theme {
+        Theme::from_name(&self.state.settings.ui_theme)
     }
 
     fn set_status(&mut self, message: impl Into<String>) {
@@ -871,6 +1035,19 @@ impl App {
                 };
                 self.state.save();
                 self.set_status(format!("default ide: {next}"));
+            }
+            3 => {
+                let current = self.state.settings.ui_theme.as_str();
+                let idx = UI_THEME_OPTIONS
+                    .iter()
+                    .position(|name| *name == current)
+                    .unwrap_or(0);
+                let len = UI_THEME_OPTIONS.len() as i32;
+                let next_idx = (idx as i32 + delta).rem_euclid(len) as usize;
+                let next = UI_THEME_OPTIONS[next_idx];
+                self.state.settings.ui_theme = next.to_string();
+                self.state.save();
+                self.set_status(format!("ui theme: {}", format_theme_label(next)));
             }
             _ => {}
         }
@@ -1376,12 +1553,20 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
 }
 
 fn draw(frame: &mut Frame<'_>, app: &mut App) {
+    let t = app.theme();
+    // Paint full terminal so light mode isn't washed-out ANSI grays on white.
+    frame.render_widget(
+        Block::default().style(Style::default().bg(t.bg).fg(t.text)),
+        frame.area(),
+    );
+
     let area = centered_rect(frame.area());
     app.panel_area = area;
     let block = Block::default()
         .title(format!(" {APP_NAME} "))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::DarkGray));
+        .border_style(Style::default().fg(t.border))
+        .style(Style::default().bg(t.bg).fg(t.text));
     frame.render_widget(block, area);
 
     let inner = inset(area, 2, 1);
@@ -1397,52 +1582,52 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         .split(inner);
 
     let title = Line::from(vec![
-        Span::styled("Launch ", Style::default().fg(Color::Gray)),
+        Span::styled("Launch ", Style::default().fg(t.muted)),
         Span::styled(
             app.selected_action.label(),
             Style::default()
                 .fg(ACCENT)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(" in a workspace", Style::default().fg(Color::Gray)),
+        Span::styled(" in a workspace", Style::default().fg(t.muted)),
     ]);
     frame.render_widget(Paragraph::new(title), chunks[0]);
 
-    draw_actions(frame, app, chunks[1]);
-    draw_filter(frame, app, chunks[2]);
-    draw_repos(frame, app, chunks[3]);
+    draw_actions(frame, app, chunks[1], t);
+    draw_filter(frame, app, chunks[2], t);
+    draw_repos(frame, app, chunks[3], t);
 
     let footer_second = if let Some(status) = &app.status {
         Line::from(Span::styled(status.clone(), Style::default().fg(ACCENT)))
     } else {
         Line::from(Span::styled(
             "e editor · f finder · c copy · g github · hover dim app to install",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(t.dim),
         ))
     };
     let footer = Paragraph::new(vec![
         Line::from(vec![
-            Span::styled("enter", Style::default().fg(Color::White)),
-            Span::styled(" open  ", Style::default().fg(Color::DarkGray)),
-            Span::styled(".", Style::default().fg(Color::White)),
-            Span::styled(" resume  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("space", Style::default().fg(Color::White)),
-            Span::styled(" fav  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("1-9", Style::default().fg(Color::White)),
-            Span::styled(" app  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("s", Style::default().fg(Color::White)),
-            Span::styled(" settings  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("type", Style::default().fg(Color::White)),
-            Span::styled(" filter", Style::default().fg(Color::DarkGray)),
+            Span::styled("enter", Style::default().fg(t.key)),
+            Span::styled(" open  ", Style::default().fg(t.dim)),
+            Span::styled(".", Style::default().fg(t.key)),
+            Span::styled(" resume  ", Style::default().fg(t.dim)),
+            Span::styled("space", Style::default().fg(t.key)),
+            Span::styled(" fav  ", Style::default().fg(t.dim)),
+            Span::styled("1-9", Style::default().fg(t.key)),
+            Span::styled(" app  ", Style::default().fg(t.dim)),
+            Span::styled("s", Style::default().fg(t.key)),
+            Span::styled(" settings  ", Style::default().fg(t.dim)),
+            Span::styled("type", Style::default().fg(t.key)),
+            Span::styled(" filter", Style::default().fg(t.dim)),
         ]),
         footer_second,
     ]);
     frame.render_widget(footer, chunks[4]);
 
-    draw_install_bar(frame, app);
+    draw_install_bar(frame, app, t);
 }
 
-fn draw_install_bar(frame: &mut Frame<'_>, app: &App) {
+fn draw_install_bar(frame: &mut Frame<'_>, app: &App, t: Theme) {
     let Some(ui) = &app.install else {
         return;
     };
@@ -1485,7 +1670,10 @@ fn draw_install_bar(frame: &mut Frame<'_>, app: &App) {
     };
 
     frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(head, Style::default().fg(color)))),
+        Paragraph::new(Line::from(Span::styled(
+            head,
+            Style::default().fg(color).bg(t.bg),
+        ))),
         Rect {
             x: bar_area.x,
             y: bar_area.y,
@@ -1510,7 +1698,7 @@ fn draw_install_bar(frame: &mut Frame<'_>, app: &App) {
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             line2,
-            Style::default().fg(color),
+            Style::default().fg(color).bg(t.bg),
         ))),
         Rect {
             x: bar_area.x,
@@ -1549,11 +1737,18 @@ fn install_recipe(action: Action) -> Option<String> {
 }
 
 fn draw_settings(frame: &mut Frame<'_>, app: &mut App) {
+    let t = app.theme();
+    frame.render_widget(
+        Block::default().style(Style::default().bg(t.bg).fg(t.text)),
+        frame.area(),
+    );
+
     let area = centered_rect(frame.area());
     let block = Block::default()
         .title(format!(" {APP_NAME} · Settings "))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::DarkGray));
+        .border_style(Style::default().fg(t.border))
+        .style(Style::default().bg(t.bg).fg(t.text));
     frame.render_widget(block, area);
 
     let inner = inset(area, 2, 1);
@@ -1570,7 +1765,7 @@ fn draw_settings(frame: &mut Frame<'_>, app: &mut App) {
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             "←/→ cycle · enter/space next · esc/s back",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(t.dim),
         ))),
         chunks[0],
     );
@@ -1595,11 +1790,13 @@ fn draw_settings(frame: &mut Frame<'_>, app: &mut App) {
         .as_deref()
         .map(|s| if s == "Windsurf" { "Devin Desktop" } else { s })
         .unwrap_or("auto");
+    let ui_theme = format_theme_label(&app.state.settings.ui_theme);
 
     let rows = [
         format!("Splash (cold start)     {splash}"),
         format!("Default agent           {default_agent}"),
         format!("Default IDE (e)         {default_ide}"),
+        format!("UI theme                {ui_theme}"),
         format!("Data dir                {}", display_path(&data_dir())),
         format!("Workspace root          {}", display_path(&workspace_root())),
     ];
@@ -1612,10 +1809,10 @@ fn draw_settings(frame: &mut Frame<'_>, app: &mut App) {
                 .fg(ACCENT_ON)
                 .bg(ACCENT)
                 .add_modifier(Modifier::BOLD)
-        } else if i >= 3 {
-            Style::default().fg(Color::DarkGray)
+        } else if i >= 4 {
+            Style::default().fg(t.dim)
         } else {
-            Style::default().fg(Color::Gray)
+            Style::default().fg(t.soft)
         };
         let marker = if selected { ">" } else { " " };
         lines.push(Line::from(Span::styled(format!("{marker} {row}"), style)));
@@ -1635,7 +1832,7 @@ fn draw_settings(frame: &mut Frame<'_>, app: &mut App) {
     }
 }
 
-fn draw_actions(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
+fn draw_actions(frame: &mut Frame<'_>, app: &mut App, area: Rect, t: Theme) {
     let mut spans = Vec::new();
     let mut x = area.x;
     app.hitboxes.action_row = area.y;
@@ -1660,14 +1857,14 @@ fn draw_actions(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::DarkGray)
+                    .fg(t.text)
+                    .bg(t.dim)
                     .add_modifier(Modifier::BOLD)
             }
         } else if available {
-            Style::default().fg(Color::Gray)
+            Style::default().fg(t.soft)
         } else {
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(t.dim)
         };
 
         app.hitboxes
@@ -1680,27 +1877,27 @@ fn draw_actions(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
-fn draw_filter(frame: &mut Frame<'_>, app: &App, area: Rect) {
+fn draw_filter(frame: &mut Frame<'_>, app: &App, area: Rect, t: Theme) {
     let value = if app.filter.is_empty() {
         "type to filter".to_string()
     } else {
         app.filter.clone()
     };
     let style = if app.filter.is_empty() {
-        Style::default().fg(Color::DarkGray)
+        Style::default().fg(t.dim)
     } else {
         Style::default().fg(ACCENT)
     };
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled("/", Style::default().fg(Color::DarkGray)),
+            Span::styled("/", Style::default().fg(t.dim)),
             Span::styled(value, style),
         ])),
         area,
     );
 }
 
-fn draw_repos(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
+fn draw_repos(frame: &mut Frame<'_>, app: &mut App, area: Rect, t: Theme) {
     app.hitboxes.list_top = area.y;
     app.hitboxes.list_height = area.height;
     app.keep_selected_visible();
@@ -1720,16 +1917,16 @@ fn draw_repos(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
         let marker = if selected { ">" } else { " " };
         let style = if selected {
             Style::default()
-                .fg(Color::White)
+                .fg(t.text)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(Color::Gray)
+            Style::default().fg(t.soft)
         };
 
         let badge_style = if repo.badge == "★" {
             Style::default().fg(ACCENT)
         } else {
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(t.dim)
         };
 
         // Layout: > name  branch*  agent  path  badge
@@ -1748,9 +1945,9 @@ fn draw_repos(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
                 branch_label.push_str(&format!("↑{}", repo.git_ahead));
             }
             let branch_style = if repo.git_dirty {
-                Style::default().fg(Color::Yellow)
+                Style::default().fg(Color::Rgb(180, 120, 0)) // readable amber on light+dark
             } else {
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(t.dim)
             };
             spans.push(Span::styled(pad_or_trim(&branch_label, 14), branch_style));
         } else {
@@ -1771,7 +1968,7 @@ fn draw_repos(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
         let path_width = area.width.saturating_sub(50) as usize;
         spans.push(Span::styled(
             pad_or_trim(&display_path(&repo.path), path_width),
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(t.dim),
         ));
         spans.push(Span::styled(repo.badge, badge_style));
 
@@ -1781,7 +1978,7 @@ fn draw_repos(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
     if lines.is_empty() {
         lines.push(Line::from(Span::styled(
             "No workspaces match this filter",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(t.dim),
         )));
     }
 
