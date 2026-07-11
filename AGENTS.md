@@ -36,53 +36,19 @@ bun run terminal:install      # rebuild t0 + reinstall LaunchAgent
 - Prefer `MC_*` env vars over hardcoded personal paths
 - LaunchAgent label: `com.mission-control.terminal`
 
-## Versioning (how agents should bump)
+## Version numbers (logic)
 
-Use **semver** `MAJOR.MINOR.PATCH` on a **0.x** product line for now (public but still early).
+Semver `MAJOR.MINOR.PATCH`, currently on **0.x**.
 
-### Preference (A-Logic / agent logic)
+| When | Bump |
+|------|------|
+| Bugfix, docs, polish, small internal change | **PATCH** (`0.2.0` → `0.2.1`) |
+| New capability users will notice (feature, new URL/path, real behavior change) | **MINOR** (`0.2.0` → `0.3.0`) |
+| Hard break with no compatibility | **MAJOR** (rare while `0.x`) |
 
-| Change size | Bump | Examples |
-|-------------|------|----------|
-| Fix, docs, small polish, dependency nits | **PATCH** (`0.2.0` → `0.2.1`) | color fix, README, skill path |
-| New user-facing capability, path/URL/state changes | **MINOR** (`0.2.0` → `0.3.0`) | portless URL, new surface, migrate data dir |
-| Breaking install/API/CLI rename with no compat | **MAJOR** (rare while `0.x`) | only if we drop `t0` / break LaunchAgent hard |
+**Default when unsure → PATCH.** Prefer small bumps; don’t jump MINOR for a grab-bag of polish. Once a version is tagged/released, don’t rewrite it — next change gets the next number.
 
-**Default when unsure:** prefer **PATCH**, not MINOR.  
-Lesson: `0.2.0` was a bit aggressive for “still early public”; a `0.1.1`-style bump would have been fine for many of those commits. Don’t thrash tags after publish unless the user asks.
-
-### Surfaces to keep in sync on a release
-
-Update **all of these** in the same release commit (or immediately after, before tagging):
-
-1. `package.json` → `"version"`
-2. `terminal/launcher-ratatui/Cargo.toml` → `version` (then `cargo build --release` / `bun run terminal:launcher:install` so `Cargo.lock` matches; avoid `--locked` failure)
-3. `extension/manifest.json` → `"version"` (can track app version; OK if it leads by a patch for extension-only fixes)
-4. `CHANGELOG.md` → new `## [X.Y.Z] — YYYY-MM-DD` section with highlights
-5. Git: commit → `git tag -a vX.Y.Z -m "…"` → `git push origin main --tags` (or push tag separately)
-6. GitHub Release: `gh release create vX.Y.Z` with notes + optional `t0-darwin-arm64` asset from `~/.t-0/bin/t0`
-
-Do **not** only bump `package.json` and forget Cargo/tag/release.
-
-### Release checklist (agents)
-
-```bash
-# 1) set versions in package.json, Cargo.toml, extension/manifest.json
-# 2) write CHANGELOG.md section
-bun run terminal:launcher:install   # rebuild t0; fix Cargo.lock if needed
-git add -A && git commit -m "chore: release vX.Y.Z"
-git push origin main
-git tag -a vX.Y.Z -m "vX.Y.Z — short summary"
-git push origin vX.Y.Z
-gh release create vX.Y.Z ~/.t-0/bin/t0#t0-darwin-arm64 \
-  --title "T-0 vX.Y.Z" --notes-file -   # or --notes "…"
-```
-
-### Tag hygiene
-
-- Tag the commit that contains the version bumps + changelog.
-- Don’t delete/retag published versions unless the user explicitly wants a fix; prefer the next PATCH.
-- Release notes: user-facing highlights + install one-liner + link to `CHANGELOG.md`.
+Keep these aligned on a release: `package.json`, `terminal/launcher-ratatui/Cargo.toml` (+ lockfile), `extension/manifest.json` if touched, `CHANGELOG.md`, git tag `vX.Y.Z`, GitHub release.
 
 ## Do not reintroduce without intent
 
