@@ -39,10 +39,14 @@ const MAX_FAVORITES: usize = 20;
 const APP_NAME: &str = "T-0";
 /// Splash / brand line.
 const APP_TAGLINE: &str = "go for launch";
-/// Accent — orange-500 (#f97316), a little heat for the pad.
-const ACCENT: Color = Color::Rgb(249, 115, 22);
-/// Text on filled accent chips (dark enough for contrast on orange).
-const ACCENT_ON: Color = Color::Rgb(23, 23, 23);
+/// Accent — orange pad heat.
+/// Prefer 256-color ANSI so macOS Terminal.app works (it often drops truecolor `Rgb`).
+/// Ghostty / iTerm / xterm.js still look fine with Indexed.
+const ACCENT: Color = Color::Indexed(208);
+/// Text on filled accent chips.
+const ACCENT_ON: Color = Color::Black;
+/// Dirty branch / amber metadata (256-color; portable).
+const AMBER: Color = Color::Indexed(178);
 
 #[derive(Clone)]
 struct Repo {
@@ -280,8 +284,9 @@ struct Theme {
 
 impl Theme {
     fn dark() -> Self {
+        // 16-color + a few 256 indices — works in Terminal.app, Ghostty, xterm.
         Self {
-            bg: Color::Rgb(20, 20, 20),
+            bg: Color::Black,
             text: Color::White,
             muted: Color::Gray,
             dim: Color::DarkGray,
@@ -292,15 +297,16 @@ impl Theme {
     }
 
     fn light() -> Self {
-        // Stronger contrast than Color::Gray on light terminals.
+        // Avoid Color::Rgb here: Terminal.app frequently ignores truecolor and
+        // falls back to default fg → everything looks black-on-white.
         Self {
-            bg: Color::Rgb(250, 250, 250),
-            text: Color::Rgb(23, 23, 23),
-            muted: Color::Rgb(82, 82, 91),   // zinc-600
-            dim: Color::Rgb(113, 113, 122), // zinc-500
-            key: Color::Rgb(24, 24, 27),
-            border: Color::Rgb(161, 161, 170),
-            soft: Color::Rgb(63, 63, 70), // zinc-700
+            bg: Color::White,
+            text: Color::Black,
+            muted: Color::DarkGray,
+            dim: Color::DarkGray,
+            key: Color::Black,
+            border: Color::Gray,
+            soft: Color::Black,
         }
     }
 
@@ -2449,7 +2455,7 @@ fn draw_repos(frame: &mut Frame<'_>, app: &mut App, area: Rect, t: Theme) {
                 branch_label.push_str(&format!("↑{}", repo.git_ahead));
             }
             let branch_style = if repo.git_dirty {
-                Style::default().fg(Color::Rgb(180, 120, 0)) // readable amber on light+dark
+                Style::default().fg(AMBER)
             } else {
                 Style::default().fg(t.dim)
             };
