@@ -1313,7 +1313,7 @@ dependencies = [
 
 [[package]]
 name = "t0-launcher"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "crossterm 0.28.1",
  "ratatui",
