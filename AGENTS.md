@@ -8,7 +8,7 @@ This repo is **browser terminal only** (not a Next.js app).
 
 ## What matters
 
-- **Product surface:** `http://127.0.0.1:4321` — full-page xterm + real local PTY
+- **Product surface:** `https://t0.localhost` (portless proxy; `http://127.0.0.1:4321` direct) — full-page xterm + real local PTY. Browser connects same-origin at `/pty`; server.ts proxies to the broker.
 - **PTY broker:** `terminal/pty-server.mjs` on `127.0.0.1:4322` (must run under Node)
 - **HTML server:** `terminal/server.ts` on `:4321` (Bun; re-reads `index.html` each request)
 - **Process supervisor:** `terminal/start.mjs` (LaunchAgent entry)

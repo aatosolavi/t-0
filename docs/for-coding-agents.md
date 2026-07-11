@@ -8,7 +8,7 @@ Also available as a skill: [`.agents/skills/install-t0/SKILL.md`](../.agents/ski
 
 | Piece | Port / path |
 |-------|-------------|
-| Browser terminal (xterm + PTY) | http://127.0.0.1:4321 |
+| Browser terminal (xterm + PTY) | https://t0.localhost (portless) · http://127.0.0.1:4321 always works |
 | PTY broker (Node) | ws://127.0.0.1:4322 |
 | Launcher CLI | `t0` → `~/.t-0/bin/t0` |
 | State | `~/.t-0/` |
@@ -37,7 +37,7 @@ curl -fsSL https://raw.githubusercontent.com/aatosolavi/t-0/main/install.sh | ba
 ```bash
 git clone https://github.com/aatosolavi/t-0.git && cd t-0
 bun install && bun run terminal:install
-open http://127.0.0.1:4321
+open https://t0.localhost   # or http://127.0.0.1:4321
 ```
 
 ### 4. Verify
@@ -45,6 +45,7 @@ open http://127.0.0.1:4321
 ```bash
 command -v t0 && t0
 curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:4321
+curl -sk -o /dev/null -w "%{http_code}\n" https://t0.localhost   # 200 when portless is set up
 ```
 
 Expect `t0` on PATH and HTTP **200** when the service is up.
@@ -53,7 +54,7 @@ Expect `t0` on PATH and HTTP **200** when the service is up.
 
 | Action | How |
 |--------|-----|
-| Open terminal | http://127.0.0.1:4321 |
+| Open terminal | https://t0.localhost (fallback http://127.0.0.1:4321) |
 | Pick repo + agent | `t0` in any terminal |
 | Resume last | `.` in the launcher (filter empty) |
 | Settings | `s` in the launcher |
@@ -74,9 +75,10 @@ Expect `t0` on PATH and HTTP **200** when the service is up.
 See [AGENTS.md](../AGENTS.md). Short version:
 
 - `terminal/index.html` — browser UI  
-- `terminal/server.ts` — Bun HTML (:4321)  
+- `terminal/server.ts` — Bun HTML + `/pty` proxy + attachments (:4321)  
 - `terminal/pty-server.mjs` — Node PTY (:4322)  
 - `terminal/launcher-ratatui` — `t0` TUI  
+- `terminal/vendor.ts` — xterm bundle entry (`bun run terminal:vendor:build` → `terminal/dist/`)  
 
 Do **not** reintroduce a Next.js dashboard without explicit product direction.
 
@@ -86,6 +88,7 @@ Do **not** reintroduce a Next.js dashboard without explicit product direction.
 2. **LaunchAgent not running** — `bun run terminal` for foreground logs.  
 3. **Wrong workspace root** — Settings → Workspace root, or `MC_WORKSPACE_ROOT`.  
 4. **Stale `mc` only** — re-run `bun run terminal:launcher:install` for `t0` + PATH shim.
+5. **`https://t0.localhost` dead but `:4321` fine** — `bunx portless proxy start`, then `bunx portless doctor`.
 
 ## Copy this skill into an agent host
 

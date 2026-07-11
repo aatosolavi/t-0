@@ -13,7 +13,7 @@ metadata:
 T-0 is a **local-first** browser terminal (real PTY) plus a Ratatui launcher (`t0`) to pick workspaces and coding agents.
 
 - **Repo:** https://github.com/aatosolavi/t-0  
-- **Product UI:** http://127.0.0.1:4321  
+- **Product UI:** https://t0.localhost (portless; fallback http://127.0.0.1:4321)  
 - **CLI:** `t0` (legacy alias `mc`)  
 - **State dir:** `~/.t-0`  
 
@@ -26,7 +26,7 @@ Confirm each exists; install only what’s missing:
 | Tool | Check | Install hint |
 |------|--------|----------------|
 | git | `git --version` | Xcode CLT / brew |
-| Node 20+ | `node -v` | `brew install node` |
+| Node 24+ | `node -v` | `brew install node` (20+ runs T-0; 24+ needed for the https://t0.localhost proxy) |
 | Bun | `bun -v` | https://bun.sh |
 | rustup | `rustup -V` | https://rustup.rs (needed to **build** `t0`) |
 
@@ -51,7 +51,7 @@ git clone https://github.com/aatosolavi/t-0.git
 cd t-0
 bun install
 bun run terminal:install    # build t0 + LaunchAgent
-open http://127.0.0.1:4321
+open https://t0.localhost   # or http://127.0.0.1:4321
 ```
 
 Dev / foreground (no LaunchAgent):
@@ -72,6 +72,7 @@ bun run terminal:launcher:install
 command -v t0
 t0                          # launcher TUI (or mc legacy alias)
 curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:4321   # expect 200 when service is up
+curl -sk -o /dev/null -w "%{http_code}\n" https://t0.localhost   # 200 once portless is set up (install.sh does this)
 ```
 
 Logs: `~/.t-0/logs/`
@@ -105,7 +106,7 @@ Do **not** change bind to `0.0.0.0` without explicit user consent and `MC_ALLOW_
 
 | Goal | Command / URL |
 |------|----------------|
-| Open terminal tab | http://127.0.0.1:4321 |
+| Open terminal tab | https://t0.localhost (fallback http://127.0.0.1:4321) |
 | Workspace + agent pad | `t0` |
 | Helium Cmd+T | Load `extension/` as unpacked Chrome/Helium extension |
 | Docs | https://github.com/aatosolavi/t-0/blob/main/docs/browser-terminal.md |
@@ -121,6 +122,6 @@ Do **not** change bind to `0.0.0.0` without explicit user consent and `MC_ALLOW_
 
 ## Success criteria
 
-1. `http://127.0.0.1:4321` serves the terminal.  
+1. `http://127.0.0.1:4321` serves the terminal (and `https://t0.localhost` once portless is set up).  
 2. `t0` runs and lists workspaces (or demo with `MC_DEMO=1`).  
 3. User can launch at least Shell (9) or an installed agent CLI.

@@ -5,10 +5,14 @@ Agent install playbook: [for-coding-agents.md](./for-coding-agents.md) · skill:
 **T-0** is a real local shell inside a browser tab:
 
 - HTML server: `http://127.0.0.1:4321` (bind host configurable via `MC_BIND_HOST`)
-- PTY broker: `ws://127.0.0.1:4322`
+- PTY broker: `ws://127.0.0.1:4322` (Node); the browser connects **same-origin at `/pty`**, which the Bun server proxies to the broker
+- Standard URL: **`https://t0.localhost`** via [portless](https://portless.sh/) — `install.sh` sets it up (`alias t0 4321` + proxy service). `http://127.0.0.1:4321` always works without it.
 - Entry command: `bun run terminal`
 - Accent: orange (`#f97316` / `#fb923c`)
 - Themes: **system / light / dark** — `?theme=system|light|dark`, or **⌘/Ctrl+Shift+L** to cycle (stored in `localStorage`)
+- Font size: **⌘/Ctrl +/−/0** (stored in `localStorage`)
+- URLs in output are clickable; a bell in a hidden tab flags the title with 🔔
+- Dropped connections reconnect automatically with backoff; the broker replays session history
 - Workspace root: `MC_WORKSPACE_ROOT` (default `~/dev` if present, else `$HOME`)
 - State dir: `MC_DATA_DIR` → `~/.t-0` (legacy `~/.mission-control` / `~/.grok-mission-control` auto-migrated once)
 
@@ -28,11 +32,11 @@ Current understanding:
 
 Current browser-side mitigation:
 
-- The browser imports `@xterm/xterm` and uses the DOM renderer by default.
+- xterm and its addons are bundled locally (`terminal/vendor.ts` → `terminal/dist/`, built by `bun run terminal:vendor:build`); nothing executable loads from a CDN.
+- The **WebGL renderer is the default**; it falls back to the DOM renderer when no GPU context is available. Force with `?renderer=dom` or `?renderer=canvas`.
 - `.xterm-screen` is not translated; fitting is handled by `FitAddon.fit()`.
 - `lineHeight` is slightly relaxed.
 - Block cursor blinking is off by default to avoid blink-off background flicker. Use `?blink=1` to test blinking.
-- Use `?renderer=canvas` to force the canvas renderer for comparison.
 
 Preferred future fixes:
 

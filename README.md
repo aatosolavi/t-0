@@ -38,14 +38,14 @@ git clone https://github.com/aatosolavi/t-0.git
 cd t-0
 bun install
 bun run terminal:install   # build t0 + LaunchAgent
-open http://127.0.0.1:4321
+open https://t0.localhost   # or http://127.0.0.1:4321
 ```
 
 ### Requirements
 
 | Tool | Why |
 |---|---|
-| **Node.js 20+** | PTY broker (`@lydell/node-pty`) |
+| **Node.js 24+** | PTY broker (`@lydell/node-pty`); 20+ runs T-0, 24+ needed for the `t0.localhost` proxy |
 | **Bun** | Tiny HTML server |
 | **Rust / rustup** | Build the `t0` launcher (prebuilt binaries planned) |
 | **macOS** | LaunchAgent install path (Linux/Windows later) |
@@ -115,15 +115,19 @@ Missing CLIs are **dimmed**. **Hover** a dim chip (or press its number / enter) 
 
 **Launcher (`t0`)** — Settings → UI theme: `auto` / `dark` / `light`
 
-### Stable URL — `https://t0.localhost` (optional)
+### Stable URL — `https://t0.localhost`
 
-T-0 works with [portless](https://portless.sh/) out of the box — it ships as a dev dependency and `portless.json` is in the repo. The PTY websocket is served same-origin at `/pty`, so one fronting URL carries everything:
+The standard address is **`https://t0.localhost`**, fronted by [portless](https://portless.sh/) (ships as a dev dependency; `portless.json` in the repo). `install.sh` sets it up automatically — route, HTTPS CA trust (one sudo prompt), and a startup service. The PTY websocket is served same-origin at `/pty`, so the one URL carries everything.
+
+Manual setup or repair:
 
 ```bash
-bunx portless       # in the repo → https://t0.localhost
+bunx portless alias t0 4321 && bunx portless proxy start
+bunx portless trust            # once; adds the local CA (sudo)
+bunx portless service install  # once; start proxy at login
 ```
 
-No portless? Nothing changes — `http://127.0.0.1:4321` keeps working.
+No portless (or Node < 24)? Nothing breaks — `http://127.0.0.1:4321` always works.
 
 ### Config (env)
 

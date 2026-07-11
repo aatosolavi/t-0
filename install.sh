@@ -54,12 +54,30 @@ bun install
 echo "→ Build launcher + LaunchAgent"
 bun run terminal:install
 
+PRODUCT_URL="http://127.0.0.1:4321"
+NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
+if [[ "$NODE_MAJOR" -ge 24 ]]; then
+  echo "→ Stable URL: https://t0.localhost (portless)"
+  echo "  portless may ask for sudo once to trust its local HTTPS CA."
+  bunx portless alias t0 4321 || true
+  bunx portless proxy start || true
+  bunx portless trust || true
+  bunx portless service install || true
+  if curl -skf --max-time 5 "https://t0.localhost" -o /dev/null 2>/dev/null; then
+    PRODUCT_URL="https://t0.localhost"
+  else
+    echo "  portless setup incomplete — using $PRODUCT_URL (retry later: bunx portless proxy start)"
+  fi
+else
+  echo "→ Skipping stable URL: portless needs Node 24+ (found $NODE_MAJOR). Using $PRODUCT_URL"
+fi
+
 echo ""
 echo "✓ T-0 is installed"
-echo "  Open:  http://127.0.0.1:4321"
+echo "  Open:  $PRODUCT_URL"
 echo "  Logs:  ~/.t-0/logs/"
 echo "  Helium: load extension/ as an unpacked extension for Cmd+T → terminal"
 echo ""
 if command -v open >/dev/null 2>&1; then
-  open "http://127.0.0.1:4321" 2>/dev/null || true
+  open "$PRODUCT_URL" 2>/dev/null || true
 fi

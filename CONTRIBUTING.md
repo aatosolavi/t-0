@@ -38,7 +38,8 @@ bun run terminal:launcher:build
 |---|---|
 | `terminal/index.html` | Browser UI (xterm.js) |
 | `terminal/server.ts` | Bun HTML + uploads (:4321) |
-| `terminal/pty-server.mjs` | Node PTY + WebSocket (:4322) |
+| `terminal/pty-server.mjs` | Node PTY + WebSocket (:4322; browser reaches it same-origin at `/pty`) |
+| `terminal/vendor.ts` | xterm bundle entry → `terminal/dist/` (built by `terminal:vendor:build`) |
 | `terminal/launcher-ratatui` | T-0 TUI (`t0`) |
 | `extension/` | Helium/Chrome new-tab redirect |
 
