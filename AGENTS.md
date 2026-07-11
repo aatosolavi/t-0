@@ -20,6 +20,7 @@ This repo is **browser terminal only** (not a Next.js app).
 bun install
 bun run terminal              # dev / foreground
 bun run terminal:install      # rebuild t0 + reinstall LaunchAgent
+bun run check                 # CI-equivalent: vendor + tsc + shell + data-dir + cargo check
 ```
 
 ## Config

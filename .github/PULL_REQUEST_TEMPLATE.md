@@ -4,9 +4,10 @@
 
 ## How I tested
 
+- [ ] `bun run check` (or let CI run it)
 - [ ] `bun install` (if deps changed)
 - [ ] Rebuilt launcher if `terminal/launcher-ratatui` changed: `bun run terminal:launcher:build`
-- [ ] Opened http://127.0.0.1:4321 and exercised the change
+- [ ] Opened https://t0.localhost (or http://127.0.0.1:4321) and exercised the change
 - [ ] Checked logs if LaunchAgent / install paths changed
 
 ## Checklist

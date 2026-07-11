@@ -17,7 +17,12 @@
     "terminal:install": "bun run terminal:vendor:build && bun run terminal:launcher:install && ./terminal/install-launch-agent.sh",
     "start": "bun run terminal",
     "dev": "bun run terminal",
-    "install:service": "./terminal/install-launch-agent.sh"
+    "install:service": "./terminal/install-launch-agent.sh",
+    "typecheck": "tsc -p tsconfig.json",
+    "check:shell": "bash -n install.sh && bash -n terminal/install-launch-agent.sh",
+    "check:data-dir": "node --input-type=module -e \"import { modernDataDir, dataDir } from './terminal/data-dir.mjs'; if (!modernDataDir().endsWith('.t-0')) process.exit(1); dataDir(); console.log('data-dir ok')\"",
+    "check:rust": "rustup run stable cargo check --locked --manifest-path terminal/launcher-ratatui/Cargo.toml",
+    "check": "bun run terminal:vendor:build && bun run typecheck && bun run check:shell && bun run check:data-dir && bun run check:rust"
   },
   "dependencies": {
     "@lydell/node-pty": "^1.2.0-beta.12",

@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  js:
+    name: JS / shell
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install deps
+        run: bun install --frozen-lockfile
+
+      - name: Vendor xterm bundle
+        run: bun run terminal:vendor:build
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Shell script syntax
+        run: bun run check:shell
+
+      - name: data-dir module smoke
+        run: bun run check:data-dir
+
+  rust:
+    name: Rust launcher
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: cargo check (locked)
+        run: cargo check --locked --manifest-path terminal/launcher-ratatui/Cargo.toml
