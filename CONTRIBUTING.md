@@ -82,6 +82,38 @@ Inspired by patterns many OSS maintainers are formalizing in 2025–2026 (e.g. G
 
 This product is a **local shell**. Never change the default bind away from localhost without a clear security discussion. See [SECURITY.md](./SECURITY.md).
 
+## Looking for contributions
+
+Two areas where help is especially welcome:
+
+### 1. Finder-class folder UX in `mc`
+
+Settings already has a first-pass **workspace root** browser (navigate folders, pick a root). We want this to feel closer to a **small Finder replacement** for the launcher — not a full file manager, but something people actually enjoy using every day.
+
+Ideas (open an issue or PR; discuss big changes first):
+
+- Clearer navigation (path segments / breadcrumbs, keyboard polish)
+- Quick jumps, recents, favorites, volumes
+- Create folder, rename, reveal-in-system-Finder
+- Smoother mouse + keyboard parity
+- Anything that makes “pick / browse workspace” feel native
+
+Primary code: `terminal/launcher-ratatui` (Ratatui TUI). Stay in the terminal surface — no heavy browser chrome.
+
+### 2. Splash screen + ASCII logo
+
+Cold start shows a short **T-0** splash. If you’re good at **ASCII / ANSI art and terminal animation**, we want you.
+
+Welcome contributions:
+
+- A stronger **ASCII logo** for T-0 (fits the existing bordered panel; light + dark)
+- A short **ASCII animation** on splash (keep it snappy — skippable, ~hundreds of ms to low seconds)
+- Variants that respect reduced motion / `MC_SPLASH=0`
+
+Keep it **ASCII/ANSI-only** (no bitmap assets in the TUI). Orange accent (`#f97316`) is the brand color. Primary code: splash draw path in `terminal/launcher-ratatui/src/main.rs`.
+
+If you only have a logo mock, open an issue with a fenced code block so we can try it in-terminal.
+
 ## Good first contributions
 
 - Docs / README polish
@@ -89,5 +121,6 @@ This product is a **local shell**. Never change the default bind away from local
 - UI polish in `mc` that doesn’t add chrome over the PTY
 - Install / LaunchAgent edge cases on macOS
 - Linux notes (no full systemd product yet unless you ship it)
+- The Finder / splash items above (small, demoable PRs preferred)
 
 Open an issue before large features.

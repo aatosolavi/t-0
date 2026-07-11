@@ -114,7 +114,12 @@ This is a **full shell as your user**, bound to **localhost only**. Do not expos
 
 Ideas and PRs welcome — especially if you live in agent CLIs too.
 
-Please read [CONTRIBUTING.md](./CONTRIBUTING.md). Short version: **humans own PRs**; AI help is fine if you reviewed and ran the change. Unreviewed agent spam will be closed.
+**Actively looking for help on:**
+
+1. **Finder-class UX in `mc`** — make the workspace/folder browser feel like a small Finder replacement for the launcher (navigation, jumps, keyboard/mouse polish).
+2. **Splash + logo (ASCII)** — terminal splash animation and a solid T-0 ASCII logo. ANSI art welcome; keep it skippable and light/dark friendly.
+
+Details and constraints: [CONTRIBUTING.md](./CONTRIBUTING.md). Short version: **humans own PRs**; AI help is fine if you reviewed and ran the change. Unreviewed agent spam will be closed.
 
 ## Docs
 
