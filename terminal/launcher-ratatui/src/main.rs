@@ -928,13 +928,27 @@ struct App {
     /// Esc pressed while editing Name/Notes — many terminals send Option+Backspace
     /// as Esc then Backspace (Meta prefix). Armed Esc waits briefly for the follow-up.
     esc_meta_armed_at: Option<Instant>,
+    /// Async git badges (paint rows first; fill in as inspect_git finishes).
+    git_rx: Option<Receiver<(PathBuf, GitMeta)>>,
+    git_pending: usize,
+}
+
+/// Git snapshot for one workspace row (filled asynchronously).
+#[derive(Clone, Debug, Default)]
+struct GitMeta {
+    branch: Option<String>,
+    dirty: bool,
+    ahead: u32,
 }
 
 impl App {
     fn new() -> Self {
         let state = LauncherState::load();
         let root = workspace_root(&state.settings);
-        let repos = discover_repos(&state);
+        let candidates = discover_candidates(&state);
+        let paths: Vec<PathBuf> = candidates.iter().map(|(p, _)| p.clone()).collect();
+        let repos = repos_from_candidates(candidates, &state);
+        let (git_rx, git_pending) = spawn_git_metadata(paths);
         let visible_repos = (0..repos.len()).collect();
         let default_action = state.default_action();
         let init_default = default_init_agent(&state.settings);
@@ -961,9 +975,49 @@ impl App {
             hover_missing: None,
             panel_area: Rect::default(),
             esc_meta_armed_at: None,
+            git_rx: Some(git_rx),
+            git_pending,
         };
         app.apply_agent_memory();
         app
+    }
+
+    /// Rebuild workspace list from FS only, then fan out git inspect in the background.
+    fn refresh_repos(&mut self) {
+        let candidates = discover_candidates(&self.state);
+        let paths: Vec<PathBuf> = candidates.iter().map(|(p, _)| p.clone()).collect();
+        self.repos = repos_from_candidates(candidates, &self.state);
+        self.apply_filter();
+        let (rx, n) = spawn_git_metadata(paths);
+        self.git_rx = Some(rx);
+        self.git_pending = n;
+    }
+
+    fn poll_git_meta(&mut self) {
+        let Some(rx) = self.git_rx.as_ref() else {
+            return;
+        };
+        loop {
+            match rx.try_recv() {
+                Ok((path, meta)) => {
+                    if let Some(repo) = self.repos.iter_mut().find(|r| r.path == path) {
+                        repo.git_branch = meta.branch;
+                        repo.git_dirty = meta.dirty;
+                        repo.git_ahead = meta.ahead;
+                    }
+                    self.git_pending = self.git_pending.saturating_sub(1);
+                }
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    self.git_rx = None;
+                    self.git_pending = 0;
+                    break;
+                }
+            }
+        }
+        if self.git_pending == 0 {
+            self.git_rx = None;
+        }
     }
 
     /// Apply word/line/char delete to Name or Notes (append-mode).
@@ -1028,8 +1082,7 @@ impl App {
             FolderPickerPurpose::WorkspaceRoot => {
                 self.state.settings.workspace_root = Some(path.display().to_string());
                 self.state.save();
-                self.repos = discover_repos(&self.state);
-                self.apply_filter();
+                self.refresh_repos();
                 self.screen = Screen::Settings;
                 self.settings_selected = 4; // workspace root row
                 self.set_status(format!("workspace root: {}", display_path(&path)));
@@ -1074,9 +1127,8 @@ impl App {
     }
 
     fn select_repo_by_path(&mut self, path: &Path) {
-        self.repos = discover_repos(&self.state);
         self.filter.clear();
-        self.apply_filter();
+        self.refresh_repos();
         if let Some((vis_i, _)) = self
             .visible_repos
             .iter()
@@ -1786,8 +1838,7 @@ impl App {
     }
 
     fn rebuild_repos_preserving_selection(&mut self, selected_path: &Path) {
-        self.repos = discover_repos(&self.state);
-        self.apply_filter();
+        self.refresh_repos();
         if let Some(visible_index) = self
             .visible_repos
             .iter()
@@ -1847,6 +1898,8 @@ enum SideAction {
 }
 
 fn main() -> io::Result<()> {
+    // P3: build app (starts async git) before splash so badges fill during splash.
+    let mut app = App::new();
     let mut first_ui = true;
 
     loop {
@@ -1865,7 +1918,7 @@ fn main() -> io::Result<()> {
             }
         }
 
-        let launch = run_app(&mut terminal);
+        let launch = run_app(&mut terminal, &mut app);
 
         disable_raw_mode()?;
         execute!(
@@ -2100,50 +2153,50 @@ fn draw_splash(frame: &mut Frame<'_>, splash: &Splash) {
     frame.render_widget(skip, chunks[6]);
 }
 
-fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<Option<Launch>> {
-    let mut app = App::new();
+fn draw_app_frame(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> io::Result<()> {
+    terminal.draw(|frame| match app.screen {
+        Screen::Picker => draw(frame, app),
+        Screen::Settings => draw_settings(frame, app),
+        Screen::FolderPicker => draw_folder_picker(frame, app),
+        // Popup over the picker — not a separate full-screen UI.
+        Screen::NewProject => {
+            draw(frame, app);
+            draw_new_project_popup(frame, app);
+        }
+    })?;
+    Ok(())
+}
+
+fn run_app(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    app: &mut App,
+) -> io::Result<Option<Launch>> {
+    // Initial paint before first input (async git badges fill in on later frames).
+    draw_app_frame(terminal, app)?;
 
     loop {
         app.tick_status();
         app.poll_install();
         app.poll_bg_init();
+        app.poll_git_meta();
         app.tick_hover_install();
-        terminal.draw(|frame| match app.screen {
-            Screen::Picker => draw(frame, &mut app),
-            Screen::Settings => draw_settings(frame, &mut app),
-            Screen::FolderPicker => draw_folder_picker(frame, &mut app),
-            // Popup over the picker — not a separate full-screen UI.
-            Screen::NewProject => {
-                draw(frame, &mut app);
-                draw_new_project_popup(frame, &mut app);
-            }
-        })?;
 
-        // Poll shorter while status / install / bg init / Esc-meta is active.
+        // Faster poll while bars/status/git meta/esc-meta are active.
         let poll_ms = if app.status.is_some()
             || app.install.is_some()
             || app.bg_init.is_some()
+            || app.git_pending > 0
             || app.esc_meta_armed_at.is_some()
         {
             40
         } else {
             250
         };
-        if !event::poll(Duration::from_millis(poll_ms))? {
-            // Esc alone (no follow-up key) closes the New Project popup.
-            if app.screen == Screen::NewProject {
-                if let Some(armed) = app.esc_meta_armed_at {
-                    if armed.elapsed() >= ESC_META_WINDOW {
-                        app.esc_meta_armed_at = None;
-                        app.screen = Screen::Picker;
-                        app.clear_status();
-                    }
-                }
-            }
-            continue;
-        }
 
-        match event::read()? {
+        // P1: drain all pending input, then draw once (paste / mouse motion).
+        if event::poll(Duration::from_millis(poll_ms))? {
+            loop {
+                match event::read()? {
             Event::Key(key) if key.kind == KeyEventKind::Press => {
                 if app.screen == Screen::FolderPicker {
                     match key.code {
@@ -2654,7 +2707,26 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 }
             }
             _ => {}
+                }
+                // Drain the rest of the burst without redrawing per event.
+                if !event::poll(Duration::ZERO)? {
+                    break;
+                }
+            }
+        } else {
+            // Idle tick: Esc alone (no follow-up key) closes the New Project popup.
+            if app.screen == Screen::NewProject {
+                if let Some(armed) = app.esc_meta_armed_at {
+                    if armed.elapsed() >= ESC_META_WINDOW {
+                        app.esc_meta_armed_at = None;
+                        app.screen = Screen::Picker;
+                        app.clear_status();
+                    }
+                }
+            }
         }
+
+        draw_app_frame(terminal, app)?;
     }
 }
 
@@ -3347,9 +3419,14 @@ fn inset(area: Rect, horizontal: u16, vertical: u16) -> Rect {
     }
 }
 
-fn discover_repos(state: &LauncherState) -> Vec<Repo> {
+/// FS-only workspace list (no git). Instant; safe for first paint.
+fn discover_candidates(state: &LauncherState) -> Vec<(PathBuf, &'static str)> {
     if demo_mode_enabled() {
-        return demo_repos();
+        // Paths only; git meta left empty for demo too (or filled sync in demo_repos).
+        return demo_repos()
+            .into_iter()
+            .map(|r| (r.path, r.badge))
+            .collect();
     }
 
     let home = home_dir();
@@ -3358,22 +3435,15 @@ fn discover_repos(state: &LauncherState) -> Vec<Repo> {
     let mut candidates: Vec<(PathBuf, &'static str)> = Vec::new();
     let mut seen = HashSet::new();
 
-    // 1) Favorites first (pin order, newest pin first).
     for path in &state.favorites {
         push_candidate(&mut candidates, &mut seen, path.clone(), "★");
     }
-
-    // 2) Recents.
     for recent in read_recent_workspaces(&data) {
         push_candidate(&mut candidates, &mut seen, recent, "recent");
     }
-
-    // 3) Last terminal cwd.
     if let Some(last_cwd) = read_last_cwd(&data) {
         push_candidate(&mut candidates, &mut seen, last_cwd, "last");
     }
-
-    // 4) Workspace root + git children.
     push_candidate(&mut candidates, &mut seen, root.clone(), "root");
 
     if let Ok(entries) = fs::read_dir(&root) {
@@ -3392,7 +3462,6 @@ fn discover_repos(state: &LauncherState) -> Vec<Repo> {
             })
             .collect();
         paths.sort_by_key(|path| path.file_name().map(|name| name.to_os_string()));
-
         for path in paths {
             push_candidate(&mut candidates, &mut seen, path, "");
         }
@@ -3401,23 +3470,19 @@ fn discover_repos(state: &LauncherState) -> Vec<Repo> {
     if candidates.is_empty() {
         push_candidate(&mut candidates, &mut seen, home, "home");
     }
+    candidates
+}
 
-    // Fan the git snapshots out — startup was dominated by serial git spawns.
-    // ponytail: one thread per repo; chunk if workspaces ever hit hundreds of repos.
-    let handles: Vec<_> = candidates
-        .iter()
-        .map(|(path, _)| {
-            let path = path.clone();
-            thread::spawn(move || inspect_git(&path))
-        })
-        .collect();
-
+fn repos_from_candidates(
+    candidates: Vec<(PathBuf, &'static str)>,
+    state: &LauncherState,
+) -> Vec<Repo> {
+    if demo_mode_enabled() {
+        return demo_repos();
+    }
     candidates
         .into_iter()
-        .zip(handles)
-        .map(|((path, badge), handle)| {
-            let (git_branch, git_dirty, git_ahead) =
-                handle.join().unwrap_or((None, false, 0));
+        .map(|(path, badge)| {
             let name = path
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
@@ -3427,13 +3492,36 @@ fn discover_repos(state: &LauncherState) -> Vec<Repo> {
                 name,
                 path,
                 badge,
-                git_branch,
-                git_dirty,
-                git_ahead,
+                git_branch: None,
+                git_dirty: false,
+                git_ahead: 0,
                 remembered_agent,
             }
         })
         .collect()
+}
+
+/// Fan out git inspect; UI paints immediately and `poll_git_meta` fills badges.
+/// ponytail: one thread per path; a stuck network/iCloud mount can leak a blocked thread
+/// for process lifetime — no timeout machinery (acceptable for local launcher).
+fn spawn_git_metadata(paths: Vec<PathBuf>) -> (Receiver<(PathBuf, GitMeta)>, usize) {
+    let n = paths.len();
+    let (tx, rx) = mpsc::channel();
+    for path in paths {
+        let tx = tx.clone();
+        thread::spawn(move || {
+            let (branch, dirty, ahead) = inspect_git(&path);
+            let _ = tx.send((
+                path,
+                GitMeta {
+                    branch,
+                    dirty,
+                    ahead,
+                },
+            ));
+        });
+    }
+    (rx, n)
 }
 
 fn push_candidate(

@@ -518,24 +518,22 @@
           lastSentRows = 0;
         }
         everConnected = true;
+        // doFit is sync — send start immediately (no artificial 80ms delay).
         doFit();
         grabFocus();
-        // Tell PTY the real size, then start in the selected workspace.
-        setTimeout(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            const { cols, rows } = term;
-            ws.send(JSON.stringify({
-              type: 'start',
-              sessionId,
-              cols,
-              rows,
-              cwd,
-              // Resolved light/dark so mc auto theme matches browser chrome.
-              theme: resolveThemeMode(),
-            }));
-            grabFocus();
-          }
-        }, 80);
+        if (ws.readyState === WebSocket.OPEN) {
+          const { cols, rows } = term;
+          ws.send(JSON.stringify({
+            type: 'start',
+            sessionId,
+            cols,
+            rows,
+            cwd,
+            // Resolved light/dark so mc auto theme matches browser chrome.
+            theme: resolveThemeMode(),
+          }));
+          grabFocus();
+        }
       };
 
       ws.onmessage = (event) => {

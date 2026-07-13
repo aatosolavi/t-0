@@ -186,13 +186,19 @@ function readProcessCwd(pid, callback) {
   });
 }
 
-function startCwdTracking(ptyProcess) {
+function startCwdTracking(session, ptyProcess) {
   let lastSaved = null;
   let polling = false;
+  let lastPolledDataAt = 0;
 
   const poll = () => {
+    // P5: no clients, or no PTY output since last poll → skip lsof (battery/CPU).
+    if (session.clients.size === 0) return;
+    const lastData = session.lastDataAt || 0;
+    if (lastData && lastData === lastPolledDataAt) return;
     if (polling) return;
     polling = true;
+    lastPolledDataAt = lastData;
 
     readProcessCwd(ptyProcess.pid, (cwd) => {
       polling = false;
@@ -214,32 +220,27 @@ function normalizeSessionId(value) {
   return raw.replace(/[^a-zA-Z0-9._:-]+/g, "-").slice(0, 120) || "default";
 }
 
+// P4: chunk list instead of string += (avoids quadratic copy near the 2MB cap).
+// Chunks are whole PTY writes — safer cut points than mid-ANSI byte offsets
+// (replaces the old trimHistoryForReplay heuristic).
 function appendHistory(session, data) {
-  session.history += data;
-  if (session.history.length > SESSION_HISTORY_LIMIT) {
-    session.history = trimHistoryForReplay(session.history);
+  if (typeof data !== "string" || data.length === 0) return;
+  if (!session.chunks) {
+    session.chunks = [];
+    session.bytes = 0;
+  }
+  session.chunks.push(data);
+  session.bytes += data.length;
+  while (session.bytes > SESSION_HISTORY_LIMIT && session.chunks.length > 1) {
+    session.bytes -= session.chunks.shift().length;
   }
 }
 
-function trimHistoryForReplay(history) {
-  const trimStart = history.length - SESSION_HISTORY_LIMIT;
-  if (trimStart <= 0) return history;
-
-  // Raw terminal output can contain ANSI/CSI sequences. Cutting blindly can
-  // expose tails like "8m" as visible text during replay, so prefer a fresh row.
-  const nextLineStart = history.indexOf("\n", trimStart);
-  if (nextLineStart !== -1 && nextLineStart - trimStart < 50_000) {
-    return history.slice(nextLineStart + 1);
+function replayHistory(session, ws) {
+  if (!session.chunks || session.chunks.length === 0) return;
+  for (const chunk of session.chunks) {
+    sendToClient(ws, chunk);
   }
-
-  // Very long lines are unusual but possible. If there is no nearby newline,
-  // restart at the next escape prefix rather than in the middle of one.
-  const nextEscapeStart = history.indexOf("\x1b", trimStart);
-  if (nextEscapeStart !== -1 && nextEscapeStart - trimStart < 2_000) {
-    return history.slice(nextEscapeStart);
-  }
-
-  return history.slice(trimStart);
 }
 
 function sendToClient(ws, data) {
@@ -291,7 +292,9 @@ function getSession(id) {
     session = {
       id: sessionId,
       clients: new Set(),
-      history: "",
+      chunks: [],
+      bytes: 0,
+      lastDataAt: 0,
       ptyProcess: null,
       stopCwdTracking: null,
       killTimer: null,
@@ -357,9 +360,10 @@ function spawnPtyForSession(session, cols, rows, requestedCwd, uiTheme) {
       useConpty: false,
     });
     session.exited = false;
-    session.stopCwdTracking = startCwdTracking(session.ptyProcess);
+    session.stopCwdTracking = startCwdTracking(session, session.ptyProcess);
 
     session.ptyProcess.onData((data) => {
+      session.lastDataAt = Date.now();
       appendHistory(session, data);
       broadcast(session, data);
     });
@@ -415,9 +419,7 @@ wss.on("connection", (ws, req) => {
           const theme = normalizeUiTheme(msg.theme);
           if (theme) session.uiTheme = theme;
           startRequested = true;
-          if (session.history) {
-            sendToClient(ws, session.history);
-          }
+          replayHistory(session, ws);
           spawnPtyForSession(session, cols, rows, cwd, theme);
           return;
         }
