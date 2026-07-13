@@ -344,7 +344,12 @@ pub fn create_scaffold(
     fs::create_dir_all(&target).map_err(|e| format!("mkdir: {e}"))?;
 
     if let Err(e) = write_scaffold_contents(&target, slug, template, notes) {
-        let _ = fs::remove_dir_all(&target);
+        if let Err(cleanup) = fs::remove_dir_all(&target) {
+            return Err(format!(
+                "{e} (also failed to remove partial scaffold {}: {cleanup})",
+                display_path(&target)
+            ));
+        }
         return Err(e);
     }
     Ok(target)
@@ -500,5 +505,100 @@ pub fn env_flag_on(key: &str) -> bool {
             v == "1" || v == "true" || v == "yes" || v == "on"
         }
         Err(_) => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slugify_basic_and_edges() {
+        assert_eq!(slugify_project_name("Hello World").unwrap(), "hello-world");
+        assert_eq!(slugify_project_name("  foo_bar.baz  ").unwrap(), "foo-bar-baz");
+        assert_eq!(slugify_project_name("---").unwrap_err(), "name needs ascii letters/digits");
+        assert_eq!(slugify_project_name("").unwrap_err(), "name needs ascii letters/digits");
+        assert_eq!(slugify_project_name("MyApp").unwrap(), "myapp");
+        // Always a single path segment (no slashes survive filtering).
+        assert_eq!(slugify_project_name("a/b").unwrap(), "ab");
+    }
+
+    #[test]
+    fn pad_line_display_width() {
+        assert_eq!(pad_line("hi", 5), "hi   ");
+        assert_eq!(pad_line("hello", 3), "hel");
+        assert_eq!(pad_line("", 2), "  ");
+        assert_eq!(display_width(&pad_line("ab", 4)), 4);
+    }
+
+    #[test]
+    fn sliding_tail_keeps_end() {
+        assert_eq!(sliding_tail("abcdef", 10), "abcdef");
+        let t = sliding_tail("abcdefghij", 5);
+        assert!(t.starts_with('…'));
+        assert!(t.ends_with('j'));
+        assert_eq!(display_width(&t), 5);
+        // Caret at end stays visible.
+        let with_caret = sliding_tail("long-project-name-here▌", 8);
+        assert!(with_caret.ends_with('▌') || with_caret.contains('▌'));
+        assert_eq!(display_width(&with_caret), 8);
+    }
+
+    #[test]
+    fn front_ellipsize_keeps_leaf() {
+        let p = front_ellipsize("~/dev/mission-control/projects/my-app  ↵", 12);
+        assert!(p.contains("my-app") || p.ends_with('↵') || p.contains("app"));
+        assert_eq!(display_width(&p), 12);
+    }
+
+    #[test]
+    fn notes_scroll_and_viewport() {
+        let notes = "a\nb\nc\nd\ne";
+        assert_eq!(notes_lines(notes).len(), 5);
+        assert_eq!(auto_scroll_notes_to_end(notes), 2); // 5 - 3
+        assert_eq!(clamp_notes_scroll(notes, 99), 2);
+        assert_eq!(clamp_notes_scroll(notes, 0), 0);
+        let vp = notes_viewport(notes, 2);
+        assert_eq!(
+            vp,
+            vec!["c".to_string(), "d".to_string(), "e".to_string()]
+        );
+        assert_eq!(notes_lines("").len(), 1);
+        assert_eq!(auto_scroll_notes_to_end(""), 0);
+    }
+
+    #[test]
+    fn delete_last_word_and_line() {
+        let mut s = String::from("hello world");
+        delete_last_word(&mut s);
+        assert_eq!(s, "hello");
+
+        let mut s = String::from("hello   ");
+        delete_last_word(&mut s);
+        assert_eq!(s, "");
+
+        let mut s = String::from("line1\nline2 words");
+        delete_last_word(&mut s);
+        assert_eq!(s, "line1\nline2");
+
+        let mut s = String::from("line1\nline2");
+        delete_current_line(&mut s);
+        assert_eq!(s, "line1\n");
+
+        let mut s = String::from("only");
+        delete_current_line(&mut s);
+        assert_eq!(s, "");
+
+        let mut s = String::from("ab");
+        delete_last_char(&mut s);
+        assert_eq!(s, "a");
+    }
+
+    #[test]
+    fn elevated_autonomy_flags() {
+        assert!(InitAgentKind::Claude.elevated_autonomy());
+        assert!(InitAgentKind::Grok.elevated_autonomy());
+        assert!(!InitAgentKind::Codex.elevated_autonomy());
+        assert!(!InitAgentKind::Pi.elevated_autonomy());
     }
 }

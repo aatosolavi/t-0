@@ -2097,13 +2097,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                             NewProjectField::Parent => {
                                 app.open_new_project_parent_picker();
                             }
-                            NewProjectField::Create => {
-                                match app.try_create_project() {
-                                    Ok(Some(launch)) => return Ok(Some(launch)),
-                                    Ok(None) => {}
-                                    Err(err) => app.set_status(err),
-                                }
-                            }
+                            // Create only via Enter / Space / Ctrl+Enter — not Right.
                             _ => {}
                         },
                         KeyCode::Char(' ') if plain_or_shift => match app.new_project.field {
@@ -2290,7 +2284,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                     app.new_project.field = app.new_project.field.prev();
                 }
                 MouseEventKind::Down(MouseButton::Left) => {
-                    // Click a field row inside the popup (matches draw: border + inset + help + fields).
+                    // Hit geometry matches draw_new_project_popup layout (not one-row-per-field).
                     let panel = app.panel_area;
                     if panel.width > 0
                         && panel.height > 0
@@ -2300,14 +2294,8 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                         && mouse.row < panel.y.saturating_add(panel.height)
                     {
                         let inner = inset(panel, 2, 1);
-                        // First row of inner = help; fields start at +1
-                        let fields_top = inner.y.saturating_add(1);
-                        if mouse.row >= fields_top {
-                            let row = (mouse.row - fields_top) as usize;
-                            let fields = NewProjectField::all();
-                            if row < fields.len() {
-                                app.new_project.field = fields[row];
-                            }
+                        if let Some(field) = hit_test_new_project_field(inner, mouse.row) {
+                            app.new_project.field = field;
                         }
                     }
                 }
@@ -3592,10 +3580,25 @@ fn run_child_app(launch: Launch) -> io::Result<()> {
             launch.action.label(),
             init.cwd.display()
         );
-        let status = Command::new(&init.program)
+        // Spawn failures must not kill the launcher — scaffold already exists; return to picker.
+        let status = match Command::new(&init.program)
             .args(&init.args)
             .current_dir(&init.cwd)
-            .status()?;
+            .status()
+        {
+            Ok(status) => status,
+            Err(err) => {
+                eprintln!(
+                    "[{} init failed to start: {}]",
+                    launch.action.label(),
+                    err
+                );
+                eprintln!("Press enter to return to {APP_NAME}...");
+                let mut input = String::new();
+                let _ = io::stdin().read_line(&mut input);
+                return Ok(());
+            }
+        };
         if !status.success() {
             eprintln!(
                 "[{} init exited with {}]",
@@ -3952,4 +3955,42 @@ fn new_project_popup_rect(screen: Rect) -> Rect {
         width: width.min(screen.width.max(1)),
         height: height.min(screen.height.max(1)),
     }
+}
+
+/// Map a screen row to a New Project field using the same vertical layout as draw:
+/// help(1) · Name/Parent/Template/Init(4) · Notes label(1) · notes box(3) · Create(1).
+fn hit_test_new_project_field(inner: Rect, row: u16) -> Option<NewProjectField> {
+    if inner.height == 0 || row < inner.y || row >= inner.y.saturating_add(inner.height) {
+        return None;
+    }
+    let r = row - inner.y;
+    const HELP: u16 = 1;
+    const TOP_FIELDS: u16 = 4;
+    const NOTES_LABEL: u16 = 1;
+    let notes_box = NOTES_VIEWPORT_ROWS;
+    let top_start = HELP;
+    let notes_start = top_start + TOP_FIELDS;
+    let notes_end = notes_start + NOTES_LABEL + notes_box; // exclusive end of notes region
+    let create_row = notes_end;
+
+    if r < top_start {
+        return None; // help line
+    }
+    if r < notes_start {
+        return Some(
+            [
+                NewProjectField::Name,
+                NewProjectField::Parent,
+                NewProjectField::Template,
+                NewProjectField::InitAgent,
+            ][(r - top_start) as usize],
+        );
+    }
+    if r < notes_end {
+        return Some(NewProjectField::Notes);
+    }
+    if r == create_row {
+        return Some(NewProjectField::Create);
+    }
+    None // filler / status
 }
