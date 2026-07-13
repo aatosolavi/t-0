@@ -1,12 +1,13 @@
 mod new_project;
 mod new_project_input;
 mod new_project_ui;
+mod jobs;
 
 use std::{
     collections::{HashMap, HashSet},
     env,
     fs,
-    io::{self, stdout, BufRead, BufReader},
+    io::{self, stdout},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::mpsc::{self, Receiver, TryRecvError},
@@ -26,7 +27,7 @@ use crossterm::{
 
 use new_project::{
     build_init_command, compose_init_prompt, create_scaffold, display_width, ellipsize_end,
-    ellipsize_front, env_flag_on, pad_line, sliding_tail, slugify_project_name, InitAgentKind,
+    ellipsize_front, pad_line, sliding_tail, slugify_project_name, InitAgentKind,
     InitCommand, InitPrompt, ProjectTemplate,
 };
 use ratatui::{
@@ -57,8 +58,6 @@ pub(crate) const ACCENT_ON: Color = Color::Rgb(23, 23, 23);
 const AMBER: Color = Color::Rgb(180, 120, 0);
 
 /// Braille spinner frames for background jobs (~100 ms each).
-const SPINNER: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧'];
-
 /// Idle tips — lowest-priority status-line content (preempted by real flashes).
 const TIPS: &[&str] = &[
     ". resumes your last session",
@@ -217,7 +216,7 @@ impl Action {
         Some(default.to_string())
     }
 
-    fn is_available(self) -> bool {
+    pub(crate) fn is_available(self) -> bool {
         match self.resolve_command() {
             None => true, // Shell always available
             Some(command) => command_available(&command),
@@ -918,47 +917,6 @@ fn list_folder_entries(cwd: &Path) -> Vec<FolderEntry> {
     entries
 }
 
-/// Background CLI install progress (shown under the main panel).
-struct InstallUi {
-    action: Action,
-    fraction: f32,
-    message: String,
-    /// When set, bar lingers briefly then clears.
-    finished_at: Option<Instant>,
-    failed: bool,
-    started_at: Instant,
-}
-
-enum InstallEvent {
-    Progress {
-        action: Action,
-        fraction: f32,
-        message: String,
-    },
-    Done {
-        action: Action,
-    },
-    Failed {
-        action: Action,
-        error: String,
-    },
-}
-
-/// Background headless project init (stays in TUI; streams agent output into the bar).
-struct BgInitUi {
-    agent: Action,
-    project: String,
-    message: String,
-    finished_at: Option<Instant>,
-    failed: bool,
-    started_at: Instant,
-}
-
-enum BgInitEvent {
-    Line(String),
-    Done { ok: bool, summary: String },
-}
-
 struct App {
     state: LauncherState,
     repos: Vec<Repo>,
@@ -977,12 +935,8 @@ struct App {
     folder: FolderBrowser,
     folder_purpose: FolderPickerPurpose,
     new_project: NewProjectForm,
-    /// Active or finishing CLI install.
-    install: Option<InstallUi>,
-    install_rx: Option<Receiver<InstallEvent>>,
-    /// Background headless init after New Project create.
-    bg_init: Option<BgInitUi>,
-    bg_init_rx: Option<Receiver<BgInitEvent>>,
+    /// Background install + headless init (`jobs` module).
+    jobs: jobs::Jobs,
     /// Hover dwell before auto-install of a missing CLI.
     hover_missing: Option<(Action, Instant)>,
     /// Last drawn panel rect (for progress bar placement).
@@ -1044,10 +998,7 @@ impl App {
             folder: FolderBrowser::open(root.clone()),
             folder_purpose: FolderPickerPurpose::WorkspaceRoot,
             new_project: NewProjectForm::open(root, init_default),
-            install: None,
-            install_rx: None,
-            bg_init: None,
-            bg_init_rx: None,
+            jobs: jobs::Jobs::default(),
             hover_missing: None,
             panel_area: Rect::default(),
             esc_meta_armed_at: None,
@@ -1283,398 +1234,27 @@ impl App {
         Ok(())
     }
 
-    fn bg_init_busy(&self) -> bool {
-        matches!(
-            &self.bg_init,
-            Some(BgInitUi {
-                finished_at: None,
-                ..
-            })
-        )
-    }
-
-    /// Spawn headless init in a background thread; stream lines into the TUI bar.
     fn start_background_init(&mut self, action: Action, cmd: InitCommand, project: String) {
-        if self.bg_init_busy() {
-            self.set_status("init already running");
-            return;
-        }
-
-        if env_flag_on("MC_INIT_DRY_RUN") {
-            self.set_status(format!(
-                "created {project} · dry-run: {} {:?}",
-                cmd.program, cmd.args
-            ));
-            return;
-        }
-
-        let (tx, rx) = mpsc::channel();
-        self.bg_init_rx = Some(rx);
-        self.bg_init = Some(BgInitUi {
-            agent: action,
-            project: project.clone(),
-            message: format!("starting {}…", action.label().to_ascii_lowercase()),
-            finished_at: None,
-            failed: false,
-            started_at: Instant::now(),
-        });
-        self.set_status(format!(
-            "✦ created {project} · {} init…",
-            action.label()
-        ));
-
-        let label = action.label().to_string();
-        thread::spawn(move || {
-            let mut child = match Command::new(&cmd.program)
-                .args(&cmd.args)
-                .current_dir(&cmd.cwd)
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-            {
-                Ok(c) => c,
-                Err(e) => {
-                    let _ = tx.send(BgInitEvent::Done {
-                        ok: false,
-                        summary: format!("failed to start {label}: {e}"),
-                    });
-                    return;
-                }
-            };
-
-            let stdout = child.stdout.take();
-            let stderr = child.stderr.take();
-            let tx_out = tx.clone();
-            let tx_err = tx.clone();
-            let out_h = thread::spawn(move || {
-                if let Some(out) = stdout {
-                    for line in BufReader::new(out).lines().flatten() {
-                        if tx_out.send(BgInitEvent::Line(line)).is_err() {
-                            break;
-                        }
-                    }
-                }
-            });
-            let err_h = thread::spawn(move || {
-                if let Some(err) = stderr {
-                    for line in BufReader::new(err).lines().flatten() {
-                        if tx_err.send(BgInitEvent::Line(line)).is_err() {
-                            break;
-                        }
-                    }
-                }
-            });
-            let _ = out_h.join();
-            let _ = err_h.join();
-
-            match child.wait() {
-                Ok(status) if status.success() => {
-                    let _ = tx.send(BgInitEvent::Done {
-                        ok: true,
-                        summary: format!("{label} init finished"),
-                    });
-                }
-                Ok(status) => {
-                    let _ = tx.send(BgInitEvent::Done {
-                        ok: false,
-                        summary: format!("{label} init exited {status}"),
-                    });
-                }
-                Err(e) => {
-                    let _ = tx.send(BgInitEvent::Done {
-                        ok: false,
-                        summary: format!("{label} init wait failed: {e}"),
-                    });
-                }
-            }
-        });
-    }
-
-    fn poll_bg_init(&mut self) {
-        let Some(rx) = self.bg_init_rx.as_ref() else {
-            if let Some(ui) = &self.bg_init {
-                if let Some(done_at) = ui.finished_at {
-                    // Linger longer than install — user should read the result.
-                    if done_at.elapsed() >= Duration::from_secs(6) {
-                        self.bg_init = None;
-                    }
-                }
-            }
-            return;
-        };
-
-        loop {
-            match rx.try_recv() {
-                Ok(BgInitEvent::Line(line)) => {
-                    let msg = truncate_status_line(&line, 72);
-                    if let Some(ui) = &mut self.bg_init {
-                        ui.message = msg;
-                    }
-                }
-                Ok(BgInitEvent::Done { ok, summary }) => {
-                    let project = self
-                        .bg_init
-                        .as_ref()
-                        .map(|u| u.project.clone())
-                        .unwrap_or_default();
-                    let agent = self
-                        .bg_init
-                        .as_ref()
-                        .map(|u| u.agent)
-                        .unwrap_or(Action::Shell);
-                    let msg = truncate_status_line(&summary, 72);
-                    let started_at = self
-                        .bg_init
-                        .as_ref()
-                        .map(|u| u.started_at)
-                        .unwrap_or_else(Instant::now);
-                    self.bg_init = Some(BgInitUi {
-                        agent,
-                        project: project.clone(),
-                        message: msg.clone(),
-                        finished_at: Some(Instant::now()),
-                        failed: !ok,
-                        started_at,
-                    });
-                    self.bg_init_rx = None;
-                    if ok {
-                        self.set_status(format!("{project} · {msg}"));
-                    } else {
-                        self.set_status(format!("{project} · {msg}"));
-                    }
-                    break;
-                }
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => {
-                    self.bg_init_rx = None;
-                    break;
-                }
+        match self.jobs.start_bg_init(action, cmd, project.clone()) {
+            Err(e) => self.set_status(e),
+            Ok(Some(status)) => self.set_status(status),
+            Ok(None) => {
+                self.set_status(format!(
+                    "✦ created {project} · {} init…",
+                    action.label()
+                ));
             }
         }
-
-        if let Some(ui) = &self.bg_init {
-            if let Some(done_at) = ui.finished_at {
-                if done_at.elapsed() >= Duration::from_secs(6) {
-                    self.bg_init = None;
-                }
-            }
-        }
-    }
-
-    fn install_busy(&self) -> bool {
-        matches!(
-            &self.install,
-            Some(InstallUi {
-                finished_at: None,
-                ..
-            })
-        )
     }
 
     fn start_install(&mut self, action: Action) {
         if action == Action::Shell || action.is_available() {
             return;
         }
-        if self.install_busy() {
-            self.set_status("install already running");
-            return;
-        }
-        let Some(cmdline) = install_recipe(action) else {
-            self.set_status(format!(
-                "no install recipe for {} yet",
-                action.label().to_ascii_lowercase()
-            ));
-            return;
-        };
-
-        let (tx, rx) = mpsc::channel();
-        self.install_rx = Some(rx);
-        self.install = Some(InstallUi {
-            action,
-            fraction: 0.02,
-            message: format!("installing {}…", action.label().to_ascii_lowercase()),
-            finished_at: None,
-            failed: false,
-            started_at: Instant::now(),
-        });
-        self.hover_missing = None;
-
-        let label = action.label().to_ascii_lowercase();
-        thread::spawn(move || {
-            let _ = tx.send(InstallEvent::Progress {
-                action,
-                fraction: 0.05,
-                message: format!("installing {label}…"),
-            });
-
-            let mut child = match Command::new("sh")
-                .args(["-lc", &cmdline])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-            {
-                Ok(c) => c,
-                Err(e) => {
-                    let _ = tx.send(InstallEvent::Failed {
-                        action,
-                        error: format!("spawn failed: {e}"),
-                    });
-                    return;
-                }
-            };
-
-            // Drain stdout/stderr so the child doesn't block; bump progress on output.
-            let mut lines = 0u32;
-            if let Some(out) = child.stdout.take() {
-                let reader = BufReader::new(out);
-                for line in reader.lines().flatten() {
-                    lines = lines.saturating_add(1);
-                    let frac = (0.08 + (lines as f32) * 0.04).min(0.92);
-                    let msg = if line.len() > 64 {
-                        format!("{}…", &line[..61])
-                    } else {
-                        line
-                    };
-                    if tx
-                        .send(InstallEvent::Progress {
-                            action,
-                            fraction: frac,
-                            message: msg,
-                        })
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-            }
-            if let Some(err) = child.stderr.take() {
-                let reader = BufReader::new(err);
-                for line in reader.lines().flatten() {
-                    lines = lines.saturating_add(1);
-                    let frac = (0.08 + (lines as f32) * 0.03).min(0.95);
-                    let msg = if line.len() > 64 {
-                        format!("{}…", &line[..61])
-                    } else {
-                        line
-                    };
-                    let _ = tx.send(InstallEvent::Progress {
-                        action,
-                        fraction: frac,
-                        message: msg,
-                    });
-                }
-            }
-
-            match child.wait() {
-                Ok(status) if status.success() => {
-                    let _ = tx.send(InstallEvent::Done { action });
-                }
-                Ok(status) => {
-                    let _ = tx.send(InstallEvent::Failed {
-                        action,
-                        error: format!("install exited {status}"),
-                    });
-                }
-                Err(e) => {
-                    let _ = tx.send(InstallEvent::Failed {
-                        action,
-                        error: format!("wait failed: {e}"),
-                    });
-                }
-            }
-        });
-    }
-
-    fn poll_install(&mut self) {
-        let Some(rx) = self.install_rx.as_ref() else {
-            // Linger then clear finished bar.
-            if let Some(ui) = &self.install {
-                if let Some(done_at) = ui.finished_at {
-                    if done_at.elapsed() >= Duration::from_millis(1600) {
-                        self.install = None;
-                    }
-                }
-            }
-            return;
-        };
-
-        loop {
-            match rx.try_recv() {
-                Ok(InstallEvent::Progress {
-                    action,
-                    fraction,
-                    message,
-                }) => {
-                    let started_at = self
-                        .install
-                        .as_ref()
-                        .map(|u| u.started_at)
-                        .unwrap_or_else(Instant::now);
-                    self.install = Some(InstallUi {
-                        action,
-                        fraction,
-                        message,
-                        finished_at: None,
-                        failed: false,
-                        started_at,
-                    });
-                }
-                Ok(InstallEvent::Done { action }) => {
-                    let started_at = self
-                        .install
-                        .as_ref()
-                        .map(|u| u.started_at)
-                        .unwrap_or_else(Instant::now);
-                    self.install = Some(InstallUi {
-                        action,
-                        fraction: 1.0,
-                        message: format!("{} ready", action.label().to_ascii_lowercase()),
-                        finished_at: Some(Instant::now()),
-                        failed: false,
-                        started_at,
-                    });
-                    self.install_rx = None;
-                    // Prefer the newly installed agent if still on that chip.
-                    if self.selected_action == action && action.is_available() {
-                        // no-op select; availability flips on next is_available()
-                    }
-                    break;
-                }
-                Ok(InstallEvent::Failed { action, error }) => {
-                    let started_at = self
-                        .install
-                        .as_ref()
-                        .map(|u| u.started_at)
-                        .unwrap_or_else(Instant::now);
-                    self.install = Some(InstallUi {
-                        action,
-                        fraction: 1.0,
-                        message: format!(
-                            "{} failed: {}",
-                            action.label().to_ascii_lowercase(),
-                            error.to_ascii_lowercase()
-                        ),
-                        finished_at: Some(Instant::now()),
-                        failed: true,
-                        started_at,
-                    });
-                    self.install_rx = None;
-                    break;
-                }
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => {
-                    self.install_rx = None;
-                    break;
-                }
-            }
-        }
-
-        if let Some(ui) = &self.install {
-            if let Some(done_at) = ui.finished_at {
-                if done_at.elapsed() >= Duration::from_millis(1600) {
-                    self.install = None;
-                }
+        match self.jobs.start_install(action, install_recipe(action)) {
+            Err(e) => self.set_status(e),
+            Ok(()) => {
+                self.hover_missing = None;
             }
         }
     }
@@ -1712,7 +1292,7 @@ impl App {
         let Some((action, since)) = self.hover_missing else {
             return;
         };
-        if since.elapsed() >= DWELL && !self.install_busy() && !action.is_available() {
+        if since.elapsed() >= DWELL && !self.jobs.install_busy() && !action.is_available() {
             self.start_install(action);
         }
     }
@@ -1769,7 +1349,7 @@ impl App {
     }
 
     fn job_busy(&self) -> bool {
-        self.install.is_some() || self.bg_init.is_some()
+        self.jobs.any_active()
     }
 
     /// Color ramp into ACCENT (dim → muted → orange) while revealing.
@@ -2401,8 +1981,10 @@ fn run_app(
     loop {
         app.tick_status();
         app.tick_tips();
-        app.poll_install();
-        app.poll_bg_init();
+        for notice in app.jobs.poll() {
+            let jobs::JobNotice::Status(s) = notice;
+            app.set_status(s);
+        }
         app.poll_git_meta();
         app.tick_hover_install();
 
@@ -2411,8 +1993,7 @@ fn run_app(
         let poll_ms = if app.status.is_some()
             || app.status_reveal > 0
             || app.tips.reveal > 0
-            || app.install.is_some()
-            || app.bg_init.is_some()
+            || app.jobs.any_active()
             || app.git_pending > 0
             || app.esc_meta_armed_at.is_some()
         {
@@ -2827,8 +2408,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     ]);
     frame.render_widget(Paragraph::new(keys), chunks[5]);
 
-    draw_install_bar(frame, app, t);
-    draw_bg_init_bar(frame, app, t);
+    jobs::draw_bars(frame, &app.jobs, app.panel_area, t);
 }
 
 /// Visual list rows including section separators (for panel sizing).
@@ -2858,171 +2438,6 @@ fn picker_panel_rect(screen: Rect, app: &App) -> Rect {
     panel_rect(screen, PANEL_CHROME.saturating_add(list_rows))
 }
 
-fn panel_bar_area(frame: &Frame<'_>, app: &App, row_offset: u16) -> Option<Rect> {
-    let panel = app.panel_area;
-    let screen = frame.area();
-    let y = (panel.y + panel.height + row_offset).min(screen.height.saturating_sub(2));
-    if y + 1 >= screen.height {
-        return None;
-    }
-    let bar_area = Rect {
-        x: panel.x,
-        y,
-        width: panel.width.max(10),
-        height: 2,
-    };
-    if bar_area.y + bar_area.height > screen.y + screen.height {
-        return None;
-    }
-    Some(bar_area)
-}
-
-fn spinner_frame(started: Instant) -> char {
-    let ms = started.elapsed().as_millis() as usize;
-    SPINNER[(ms / 100) % SPINNER.len()]
-}
-
-fn draw_install_bar(frame: &mut Frame<'_>, app: &App, t: Theme) {
-    let Some(ui) = &app.install else {
-        return;
-    };
-    // If bg init is also active, install sits on first row pair; bg init below.
-    let Some(bar_area) = panel_bar_area(frame, app, 0) else {
-        return;
-    };
-
-    let label = ui.action.label().to_ascii_lowercase();
-    let pct = (ui.fraction * 100.0).round() as u16;
-    let spinning = ui.finished_at.is_none() && !ui.failed;
-    let spin = if spinning {
-        format!("{} ", spinner_frame(ui.started_at))
-    } else {
-        String::new()
-    };
-    let head = if ui.failed {
-        format!("install {label} failed")
-    } else if ui.finished_at.is_some() {
-        format!("install {label} done")
-    } else {
-        format!("{spin}installing {label}  {pct}%")
-    };
-    let msg = truncate_status_line(&ui.message, bar_area.width as usize);
-
-    let color = if ui.failed {
-        Color::Red
-    } else {
-        ACCENT
-    };
-
-    frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            head,
-            Style::default().fg(color).bg(t.bg),
-        ))),
-        Rect {
-            x: bar_area.x,
-            y: bar_area.y,
-            width: bar_area.width,
-            height: 1,
-        },
-    );
-
-    let inner_w = bar_area.width.saturating_sub(2) as usize;
-    let filled = ((ui.fraction * inner_w as f32).round() as usize).min(inner_w);
-    let bar = format!(
-        "[{}{}]",
-        "█".repeat(filled),
-        "░".repeat(inner_w.saturating_sub(filled))
-    );
-    let line2 = if !msg.is_empty() && ui.finished_at.is_none() && !ui.failed {
-        msg
-    } else {
-        bar
-    };
-    frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            line2,
-            Style::default().fg(color).bg(t.bg),
-        ))),
-        Rect {
-            x: bar_area.x,
-            y: bar_area.y + 1,
-            width: bar_area.width,
-            height: 1,
-        },
-    );
-}
-
-fn draw_bg_init_bar(frame: &mut Frame<'_>, app: &App, t: Theme) {
-    let Some(ui) = &app.bg_init else {
-        return;
-    };
-    // Stack under install bar when both present.
-    let offset = if app.install.is_some() { 2 } else { 0 };
-    let Some(bar_area) = panel_bar_area(frame, app, offset) else {
-        return;
-    };
-
-    let agent = ui.agent.label().to_ascii_lowercase();
-    let spinning = ui.finished_at.is_none() && !ui.failed;
-    let spin = if spinning {
-        format!("{} ", spinner_frame(ui.started_at))
-    } else {
-        String::new()
-    };
-    let head = if ui.failed {
-        format!("init {agent} failed · {}", ui.project)
-    } else if ui.finished_at.is_some() {
-        format!("init {agent} done · {}", ui.project)
-    } else {
-        format!("{spin}init {agent}… · {}", ui.project)
-    };
-    let color = if ui.failed {
-        Color::Red
-    } else {
-        ACCENT
-    };
-    let msg = truncate_status_line(&ui.message, bar_area.width as usize);
-
-    frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            truncate_status_line(&head, bar_area.width as usize),
-            Style::default().fg(color).bg(t.bg),
-        ))),
-        Rect {
-            x: bar_area.x,
-            y: bar_area.y,
-            width: bar_area.width,
-            height: 1,
-        },
-    );
-    frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            msg,
-            Style::default().fg(if ui.failed { Color::Red } else { t.soft }).bg(t.bg),
-        ))),
-        Rect {
-            x: bar_area.x,
-            y: bar_area.y + 1,
-            width: bar_area.width,
-            height: 1,
-        },
-    );
-}
-
-fn truncate_status_line(s: &str, width: usize) -> String {
-    if width == 0 {
-        return String::new();
-    }
-    if display_width(s) <= width {
-        return s.to_string();
-    }
-    sliding_tail(s, width)
-}
-
-/// Known install recipes for missing agent CLIs (run via `sh -lc`).
-/// Default: only **pinned npm global packages** (no silent curl|bash).
-/// Script installs require `MC_ALLOW_SCRIPT_INSTALL=1`.
 fn install_recipe(action: Action) -> Option<String> {
     let allow_scripts = env::var("MC_ALLOW_SCRIPT_INSTALL")
         .map(|v| {
