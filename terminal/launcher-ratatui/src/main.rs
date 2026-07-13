@@ -2346,7 +2346,13 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     draw_filter(frame, app, chunks[2], t);
     draw_repos(frame, app, chunks[3], t);
 
-    let footer_second = if let Some(status) = &app.status {
+    // While New Project popup is open, status lives only in the modal — not the main footer.
+    let footer_second = if app.screen == Screen::NewProject {
+        Line::from(Span::styled(
+            "n new · e editor · f finder · c copy · g github · hover dim app to install",
+            Style::default().fg(t.dim),
+        ))
+    } else if let Some(status) = &app.status {
         Line::from(Span::styled(status.clone(), Style::default().fg(ACCENT)))
     } else {
         Line::from(Span::styled(
