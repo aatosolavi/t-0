@@ -304,6 +304,9 @@
       letterSpacing: 0,
       mouseEvents: true,
       scrollback: 10000,
+      // macOS: Option must act as Meta/Alt so Option+Backspace reaches the PTY as
+      // word-delete (otherwise Option often inserts nothing useful / plain Backspace).
+      macOptionIsMeta: true,
       fastScrollModifier: 'alt',
       rightClickSelectsWord: false,
       termName: 'xterm-256color',

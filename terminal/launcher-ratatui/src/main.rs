@@ -634,6 +634,16 @@ enum FolderPickerPurpose {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+enum TextDelete {
+    Char,
+    Word,
+    Line,
+}
+
+/// How long to wait after Esc for a Meta-prefixed key (Option+Backspace → Esc, Backspace).
+const ESC_META_WINDOW: Duration = Duration::from_millis(120);
+
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum NewProjectField {
     Name,
     Parent,
@@ -901,6 +911,9 @@ struct App {
     hover_missing: Option<(Action, Instant)>,
     /// Last drawn panel rect (for progress bar placement).
     panel_area: Rect,
+    /// Esc pressed while editing Name/Notes — many terminals send Option+Backspace
+    /// as Esc then Backspace (Meta prefix). Armed Esc waits briefly for the follow-up.
+    esc_meta_armed_at: Option<Instant>,
 }
 
 impl App {
@@ -931,9 +944,35 @@ impl App {
             install_rx: None,
             hover_missing: None,
             panel_area: Rect::default(),
+            esc_meta_armed_at: None,
         };
         app.apply_agent_memory();
         app
+    }
+
+    /// Apply word/line/char delete to Name or Notes (append-mode).
+    fn new_project_text_delete(&mut self, kind: TextDelete) {
+        if !matches!(
+            self.new_project.field,
+            NewProjectField::Name | NewProjectField::Notes
+        ) {
+            return;
+        }
+        let is_notes = self.new_project.field == NewProjectField::Notes;
+        let s = if is_notes {
+            &mut self.new_project.notes
+        } else {
+            &mut self.new_project.name
+        };
+        match kind {
+            TextDelete::Char => delete_last_char(s),
+            TextDelete::Word => delete_last_word(s),
+            TextDelete::Line => delete_current_line(s),
+        }
+        if is_notes {
+            self.new_project.notes_scroll =
+                clamp_notes_scroll(&self.new_project.notes, self.new_project.notes_scroll);
+        }
     }
 
     fn open_folder_picker(&mut self) {
@@ -1895,13 +1934,26 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             }
         })?;
 
-        // Poll shorter while a status flash or install bar is active.
-        let poll_ms = if app.status.is_some() || app.install.is_some() {
+        // Poll shorter while a status flash, install bar, or Esc-meta arm is active.
+        let poll_ms = if app.status.is_some()
+            || app.install.is_some()
+            || app.esc_meta_armed_at.is_some()
+        {
             40
         } else {
             250
         };
         if !event::poll(Duration::from_millis(poll_ms))? {
+            // Esc alone (no follow-up key) closes the New Project popup.
+            if app.screen == Screen::NewProject {
+                if let Some(armed) = app.esc_meta_armed_at {
+                    if armed.elapsed() >= ESC_META_WINDOW {
+                        app.esc_meta_armed_at = None;
+                        app.screen = Screen::Picker;
+                        app.clear_status();
+                    }
+                }
+            }
             continue;
         }
 
@@ -1985,6 +2037,37 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                     let plain_or_shift =
                         mods.is_empty() || mods == KeyModifiers::SHIFT;
 
+                    // Option+Backspace often arrives as Esc then Backspace (Meta prefix).
+                    if let Some(armed) = app.esc_meta_armed_at.take() {
+                        if armed.elapsed() < ESC_META_WINDOW {
+                            match key.code {
+                                KeyCode::Backspace | KeyCode::Delete => {
+                                    app.new_project_text_delete(TextDelete::Word);
+                                    continue;
+                                }
+                                KeyCode::Char(c) if c == '\u{7f}' || c == '\u{08}' => {
+                                    app.new_project_text_delete(TextDelete::Word);
+                                    continue;
+                                }
+                                KeyCode::Esc => {
+                                    app.screen = Screen::Picker;
+                                    app.clear_status();
+                                    continue;
+                                }
+                                _ => {
+                                    // Esc then unrelated key → close (Esc alone intent).
+                                    app.screen = Screen::Picker;
+                                    app.clear_status();
+                                    continue;
+                                }
+                            }
+                        }
+                        // Timed out before this key: Esc alone closes, drop this key.
+                        app.screen = Screen::Picker;
+                        app.clear_status();
+                        continue;
+                    }
+
                     // Ctrl+Enter always creates from any field.
                     if matches!(key.code, KeyCode::Enter) && ctrl {
                         match app.try_create_project() {
@@ -1995,7 +2078,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                         continue;
                     }
 
-                    // Ctrl+U / Ctrl+W on Name/Notes (reliable kill-line / kill-word).
+                    // Ctrl+U / Ctrl+W / Ctrl+Backspace on Name/Notes.
                     if ctrl {
                         if let KeyCode::Char(c) = key.code {
                             let lower = c.to_ascii_lowercase();
@@ -2004,30 +2087,38 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                                 NewProjectField::Name | NewProjectField::Notes
                             ) && (lower == 'u' || lower == 'w')
                             {
-                                let is_notes = app.new_project.field == NewProjectField::Notes;
-                                let s = if is_notes {
-                                    &mut app.new_project.notes
-                                } else {
-                                    &mut app.new_project.name
-                                };
                                 if lower == 'u' {
-                                    delete_current_line(s);
+                                    app.new_project_text_delete(TextDelete::Line);
                                 } else {
-                                    delete_last_word(s);
-                                }
-                                if is_notes {
-                                    app.new_project.notes_scroll =
-                                        clamp_notes_scroll(&app.new_project.notes, app.new_project.notes_scroll);
+                                    app.new_project_text_delete(TextDelete::Word);
                                 }
                                 continue;
                             }
+                        }
+                        if matches!(key.code, KeyCode::Backspace | KeyCode::Delete)
+                            && matches!(
+                                app.new_project.field,
+                                NewProjectField::Name | NewProjectField::Notes
+                            )
+                        {
+                            app.new_project_text_delete(TextDelete::Word);
+                            continue;
                         }
                     }
 
                     match key.code {
                         KeyCode::Esc => {
-                            app.screen = Screen::Picker;
-                            app.clear_status();
+                            // While typing, delay Esc: follow-up may be Meta-Backspace.
+                            if matches!(
+                                app.new_project.field,
+                                NewProjectField::Name | NewProjectField::Notes
+                            ) && mods.is_empty()
+                            {
+                                app.esc_meta_armed_at = Some(Instant::now());
+                            } else {
+                                app.screen = Screen::Picker;
+                                app.clear_status();
+                            }
                         }
                         KeyCode::Down => {
                             if app.new_project.field == NewProjectField::Notes {
@@ -2160,30 +2251,22 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                                 }
                             }
                         },
-                        KeyCode::Backspace => match app.new_project.field {
-                            NewProjectField::Name | NewProjectField::Notes => {
-                                let is_notes = app.new_project.field == NewProjectField::Notes;
-                                let s = if is_notes {
-                                    &mut app.new_project.notes
-                                } else {
-                                    &mut app.new_project.name
-                                };
+                        KeyCode::Backspace | KeyCode::Delete => {
+                            if matches!(
+                                app.new_project.field,
+                                NewProjectField::Name | NewProjectField::Notes
+                            ) {
+                                // Alt/Option or Super+Backspace → word / line.
+                                // Plain Backspace → one char.
                                 if super_key {
-                                    delete_current_line(s);
+                                    app.new_project_text_delete(TextDelete::Line);
                                 } else if alt {
-                                    delete_last_word(s);
+                                    app.new_project_text_delete(TextDelete::Word);
                                 } else {
-                                    delete_last_char(s);
-                                }
-                                if is_notes {
-                                    app.new_project.notes_scroll = clamp_notes_scroll(
-                                        &app.new_project.notes,
-                                        app.new_project.notes_scroll,
-                                    );
+                                    app.new_project_text_delete(TextDelete::Char);
                                 }
                             }
-                            _ => {}
-                        },
+                        }
                         KeyCode::Char(c) if !c.is_control() && plain_or_shift => {
                             match app.new_project.field {
                                 NewProjectField::Name => {
@@ -3773,7 +3856,7 @@ fn draw_new_project_popup(frame: &mut Frame<'_>, app: &mut App) {
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             pad_line(
-                "tab fields · enter newline in notes · ctrl-enter create · opt-bs word · ctrl-u line · esc",
+                "tab · enter=newline · ctrl-enter create · opt/ctrl-bs word · ctrl-u line · esc",
                 col_w,
             ),
             Style::default().fg(t.dim).bg(t.bg),

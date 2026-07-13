@@ -464,27 +464,48 @@ pub fn delete_last_char(s: &mut String) {
     s.pop();
 }
 
-/// Option/Alt+Backspace: delete last word (and trailing whitespace before it).
+fn is_word_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_'
+}
+
+/// Option/Alt+Backspace: delete last word (macOS-style).
+/// Skips trailing whitespace on the current line, then deletes either a run of
+/// word chars (alnum/_) or a run of non-word non-space chars (e.g. `---`).
 pub fn delete_last_word(s: &mut String) {
-    let trimmed_end = s.trim_end_matches(|c: char| c.is_whitespace() && c != '\n');
-    let end = trimmed_end.len();
-    s.truncate(end);
-    // Walk back over non-whitespace on the current line (stop at newline).
-    while let Some(c) = s.chars().last() {
-        if c == '\n' {
-            break;
-        }
-        if c.is_whitespace() {
-            break;
-        }
-        s.pop();
-    }
-    // Also drop spaces after the word on this line (already trimmed above).
+    // Drop trailing spaces/tabs on this line (not newlines).
     while let Some(c) = s.chars().last() {
         if c == ' ' || c == '\t' {
             s.pop();
         } else {
             break;
+        }
+    }
+    let Some(last) = s.chars().last() else {
+        return;
+    };
+    if last == '\n' {
+        return;
+    }
+    if is_word_char(last) {
+        while let Some(c) = s.chars().last() {
+            if c == '\n' || !is_word_char(c) {
+                break;
+            }
+            s.pop();
+        }
+    } else {
+        // Punctuation / symbols cluster.
+        while let Some(c) = s.chars().last() {
+            if c == '\n' || c.is_whitespace() || is_word_char(c) {
+                break;
+            }
+            s.pop();
+        }
+    }
+    // Drop a single space/tab left between words ( "hello " after deleting "world").
+    if let Some(c) = s.chars().last() {
+        if c == ' ' || c == '\t' {
+            s.pop();
         }
     }
 }
@@ -576,6 +597,14 @@ mod tests {
         let mut s = String::from("hello   ");
         delete_last_word(&mut s);
         assert_eq!(s, "");
+
+        let mut s = String::from("foo-bar");
+        delete_last_word(&mut s);
+        assert_eq!(s, "foo-");
+
+        let mut s = String::from("foo-");
+        delete_last_word(&mut s);
+        assert_eq!(s, "foo");
 
         let mut s = String::from("line1\nline2 words");
         delete_last_word(&mut s);
