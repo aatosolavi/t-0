@@ -1,4 +1,5 @@
 mod new_project;
+mod new_project_ui;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -25,7 +26,7 @@ use crossterm::{
 use new_project::{
     auto_scroll_notes_to_end, build_init_command, clamp_notes_scroll, compose_init_prompt,
     create_scaffold, delete_current_line, delete_last_char, delete_last_word, display_width,
-    ellipsize_end, ellipsize_front, env_flag_on, notes_viewport, pad_line, sliding_tail,
+    ellipsize_end, ellipsize_front, env_flag_on, pad_line, sliding_tail,
     slugify_project_name, InitAgentKind, InitCommand, InitPrompt, ProjectTemplate, NAME_MAX_CHARS,
     NOTES_MAX_CHARS, NOTES_VIEWPORT_ROWS,
 };
@@ -46,13 +47,13 @@ const MAX_WIDTH: u16 = 92;
 const MAX_RECENTS: usize = 20;
 const MAX_FAVORITES: usize = 20;
 /// Product name (SpaceX-flavored: countdown to liftoff — agents go at T-0).
-const APP_NAME: &str = "T-0";
+pub(crate) const APP_NAME: &str = "T-0";
 /// Splash / brand line.
 const APP_TAGLINE: &str = "go for launch";
 /// Accent — orange-500 (#f97316), a little heat for the pad.
-const ACCENT: Color = Color::Rgb(249, 115, 22);
+pub(crate) const ACCENT: Color = Color::Rgb(249, 115, 22);
 /// Text on filled accent chips (dark enough for contrast on orange).
-const ACCENT_ON: Color = Color::Rgb(23, 23, 23);
+pub(crate) const ACCENT_ON: Color = Color::Rgb(23, 23, 23);
 /// Dirty branch / amber metadata (fallback; prefer Theme.warn).
 const AMBER: Color = Color::Rgb(180, 120, 0);
 
@@ -97,7 +98,7 @@ struct Repo {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Action {
+pub(crate) enum Action {
     Grok,
     Codex,
     Pi,
@@ -153,7 +154,7 @@ impl Action {
         }
     }
 
-    fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Action::Grok => "Grok",
             Action::Codex => "Codex",
@@ -308,23 +309,23 @@ impl Default for SettingsFile {
 
 /// Palette that stays readable on both terminal backgrounds.
 #[derive(Clone, Copy)]
-struct Theme {
-    bg: Color,
-    text: Color,
-    muted: Color,
-    dim: Color,
-    key: Color,
-    border: Color,
+pub(crate) struct Theme {
+    pub bg: Color,
+    pub text: Color,
+    pub muted: Color,
+    pub dim: Color,
+    pub key: Color,
+    pub border: Color,
     /// Unselected agent chip / list row.
-    soft: Color,
+    pub soft: Color,
     /// Selected row full-width fill (one step off bg).
-    surface: Color,
+    pub surface: Color,
     /// Git dirty / ahead — never share hue with ACCENT.
-    warn: Color,
+    pub warn: Color,
 }
 
 impl Theme {
-    fn dark() -> Self {
+    pub(crate) fn dark() -> Self {
         Self {
             bg: Color::Rgb(20, 20, 20),
             text: Color::White,
@@ -698,8 +699,8 @@ enum TextDelete {
 /// How long to wait after Esc for a Meta-prefixed key (Option+Backspace → Esc, Backspace).
 const ESC_META_WINDOW: Duration = Duration::from_millis(120);
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum NewProjectField {
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum NewProjectField {
     Name,
     Parent,
     Template,
@@ -738,16 +739,18 @@ impl NewProjectField {
     }
 }
 
-struct NewProjectForm {
-    name: String,
-    parent: PathBuf,
-    template: ProjectTemplate,
+/// New Project form state — lives in `main`; painted by `new_project_ui`.
+#[derive(Clone)]
+pub(crate) struct NewProjectForm {
+    pub name: String,
+    pub parent: PathBuf,
+    pub template: ProjectTemplate,
     /// None = scaffold only (no agent available or user cycled to skip).
-    init_agent: Option<Action>,
-    notes: String,
+    pub init_agent: Option<Action>,
+    pub notes: String,
     /// First visible logical line of the notes 3-row viewport.
-    notes_scroll: u16,
-    field: NewProjectField,
+    pub notes_scroll: u16,
+    pub field: NewProjectField,
 }
 
 impl NewProjectForm {
@@ -2378,7 +2381,9 @@ fn draw_app_frame(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &m
         // Popup over the picker — not a separate full-screen UI.
         Screen::NewProject => {
             draw(frame, app);
-            draw_new_project_popup(frame, app);
+            let status = app.status.as_deref();
+            app.panel_area =
+                new_project_ui::draw(frame, &app.new_project, app.theme(), status);
         }
     })?;
     Ok(())
@@ -2865,24 +2870,12 @@ fn run_app(
                     app.new_project.field = app.new_project.field.prev();
                 }
                 MouseEventKind::Down(MouseButton::Left) => {
-                    // Hit geometry matches draw_new_project_popup layout (not one-row-per-field).
                     let panel = app.panel_area;
-                    if panel.width > 0
-                        && panel.height > 0
-                        && mouse.column >= panel.x
-                        && mouse.column < panel.x.saturating_add(panel.width)
-                        && mouse.row >= panel.y
-                        && mouse.row < panel.y.saturating_add(panel.height)
-                    {
-                        // Match draw_new_project_popup: inset(2,0) then +1 top / -2 height for border.
-                        let padded = inset(panel, 2, 0);
-                        let inner = Rect {
-                            x: padded.x,
-                            y: padded.y.saturating_add(1),
-                            width: padded.width,
-                            height: padded.height.saturating_sub(2),
-                        };
-                        if let Some(field) = hit_test_new_project_field(inner, mouse.row) {
+                    if panel.width > 0 && panel.height > 0 {
+                        let lay = new_project_ui::layout(panel);
+                        if let Some(field) =
+                            new_project_ui::hit_test(&lay, mouse.row, mouse.column)
+                        {
                             app.new_project.field = field;
                         }
                     }
@@ -4563,7 +4556,7 @@ fn repo_matches(repo: &Repo, query: &str) -> bool {
         .all(|part| haystack.contains(part))
 }
 
-fn display_path(path: &Path) -> String {
+pub(crate) fn display_path(path: &Path) -> String {
     let home = home_dir();
     if let Ok(stripped) = path.strip_prefix(&home) {
         return format!("~/{}", stripped.display());
@@ -4713,21 +4706,10 @@ fn action_to_init_kind(action: Action) -> Option<InitAgentKind> {
     }
 }
 
-fn init_agent_elevated(action: Action) -> bool {
+pub(crate) fn init_agent_elevated(action: Action) -> bool {
     action_to_init_kind(action)
         .map(|k| k.elevated_autonomy())
         .unwrap_or(false)
-}
-
-fn field_row_style(selected: bool, t: &Theme) -> Style {
-    if selected {
-        Style::default()
-            .fg(ACCENT_ON)
-            .bg(ACCENT)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(t.soft).bg(t.bg)
-    }
 }
 
 /// `?` keymap overlay — reuses New Project popup chrome (Clear + opaque + border).
@@ -4792,283 +4774,6 @@ fn draw_help_overlay(frame: &mut Frame<'_>, _app: &App) {
         ]));
     }
     frame.render_widget(Paragraph::new(out), inner);
-}
-
-/// Modal popup over the picker (not a full-screen replacement).
-fn draw_new_project_popup(frame: &mut Frame<'_>, app: &mut App) {
-    let t = app.theme();
-    let show_status = app
-        .status
-        .as_ref()
-        .is_some_and(|s| !s.trim().is_empty());
-    let area = new_project_popup_rect(frame.area(), show_status);
-    app.panel_area = area;
-
-    // Opaque layer: Clear removes underneath glyphs; solid fill paints every cell.
-    frame.render_widget(Clear, area);
-    frame.render_widget(
-        Block::default().style(Style::default().bg(t.bg).fg(t.text)),
-        area,
-    );
-
-    let block = Block::default()
-        .title(format!(" {APP_NAME} · New project "))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(ACCENT))
-        .style(Style::default().bg(t.bg).fg(t.text));
-    frame.render_widget(block, area);
-
-    // Horizontal pad 2, vertical pad 0 — border already occupies top/bottom of `area`.
-    let inner = inset(area, 2, 0);
-    // Sit content just inside the border (not double-padded).
-    let inner = Rect {
-        x: inner.x,
-        y: inner.y.saturating_add(1),
-        width: inner.width,
-        height: inner.height.saturating_sub(2),
-    };
-    frame.render_widget(
-        Block::default().style(Style::default().bg(t.bg)),
-        inner,
-    );
-
-    // Exactly the field rows — status only when there is a message (no blank spare row).
-    // help 1 · Name/Parent/Template/Init 4 · Notes label 1 · notes box N · Create 1 · [status 1]
-    let mut constraints = vec![
-        Constraint::Length(1), // help
-        Constraint::Length(4), // name / parent / template / init
-        Constraint::Length(1), // notes label
-        Constraint::Length(NOTES_VIEWPORT_ROWS), // notes box
-        Constraint::Length(1), // create
-    ];
-    if show_status {
-        constraints.push(Constraint::Length(1));
-    }
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(constraints)
-        .split(inner);
-
-    let col_w = chunks[0].width.max(1) as usize;
-    frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            pad_line(
-                "tab · shift-enter=newline · enter next · create/ctrl-enter · shift-up · esc",
-                col_w,
-            ),
-            Style::default().fg(t.dim).bg(t.bg),
-        )))
-        .style(Style::default().bg(t.bg)),
-        chunks[0],
-    );
-
-    let name_raw = if app.new_project.name.is_empty() {
-        "…".to_string()
-    } else {
-        app.new_project.name.clone()
-    };
-    let parent_raw = format!("{}  ↵", display_path(&app.new_project.parent));
-    let elevated = app
-        .new_project
-        .init_agent
-        .map(init_agent_elevated)
-        .unwrap_or(false);
-    let init_label = match app.new_project.init_agent {
-        Some(a) if elevated => format!("{} · full tools", a.label()),
-        Some(a) => a.label().to_string(),
-        None => "none (scaffold only)".into(),
-    };
-    let create_label = match app.new_project.init_agent {
-        Some(_) if elevated => "scaffold + headless init · full tools",
-        Some(_) => "scaffold + headless init",
-        None => "scaffold only",
-    };
-
-    let top_rows: [(&str, String, NewProjectField); 4] = [
-        ("Name", name_raw, NewProjectField::Name),
-        ("Parent", parent_raw, NewProjectField::Parent),
-        (
-            "Template",
-            app.new_project.template.label().to_string(),
-            NewProjectField::Template,
-        ),
-        ("Init agent", init_label, NewProjectField::InitAgent),
-    ];
-
-    let field_w = chunks[1].width.max(1) as usize;
-    let mut top_lines = Vec::new();
-    for (label, value, field) in top_rows {
-        let selected = app.new_project.field == field;
-        let style = field_row_style(selected, &t);
-        let marker = if selected { ">" } else { " " };
-        let prefix = format!("{marker} {label:<11} ");
-        let avail = field_w.saturating_sub(display_width(&prefix));
-        // Name: sliding tail keeps caret + recent chars; Parent: front-ellipsize keeps leaf.
-        let value_out = match field {
-            NewProjectField::Name if selected => {
-                let with_caret = if app.new_project.name.is_empty() {
-                    format!("▌{value}")
-                } else {
-                    format!("{value}▌")
-                };
-                sliding_tail(&with_caret, avail)
-            }
-            NewProjectField::Name => sliding_tail(&value, avail),
-            // Parent keeps the leaf visible (sliding_tail shows the end of the path).
-            NewProjectField::Parent => sliding_tail(&value, avail),
-            _ => sliding_tail(&value, avail),
-        };
-        let raw = format!("{prefix}{value_out}");
-        top_lines.push(Line::from(Span::styled(pad_line(&raw, field_w), style)));
-    }
-    frame.render_widget(
-        Paragraph::new(top_lines).style(Style::default().bg(t.bg)),
-        chunks[1],
-    );
-
-    // Notes label row
-    let notes_selected = app.new_project.field == NewProjectField::Notes;
-    let notes_label_style = field_row_style(notes_selected, &t);
-    let notes_marker = if notes_selected { ">" } else { " " };
-    frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            pad_line(&format!("{notes_marker} {:<11}", "Notes"), field_w),
-            notes_label_style,
-        )))
-        .style(Style::default().bg(t.bg)),
-        chunks[2],
-    );
-
-    // 3-row notes viewport (append-mode caret at end of text).
-    app.new_project.notes_scroll =
-        clamp_notes_scroll(&app.new_project.notes, app.new_project.notes_scroll);
-    let viewport = notes_viewport(&app.new_project.notes, app.new_project.notes_scroll);
-    let notes_empty = app.new_project.notes.is_empty();
-    let notes_box_w = chunks[3].width.max(1) as usize;
-    let end_line_idx = new_project::notes_lines(&app.new_project.notes)
-        .len()
-        .saturating_sub(1);
-    let notes_indent = "  ";
-    let notes_avail = notes_box_w.saturating_sub(display_width(notes_indent));
-    let mut note_lines = Vec::new();
-    for (i, line) in viewport.iter().enumerate() {
-        let line_idx = app.new_project.notes_scroll as usize + i;
-        let mut text = if notes_empty && i == 0 {
-            "optional — what is this project?".to_string()
-        } else {
-            line.clone()
-        };
-        if notes_selected && line_idx == end_line_idx {
-            text = if notes_empty {
-                format!("▌{text}")
-            } else {
-                format!("{text}▌")
-            };
-        }
-        // Sliding tail so long lines keep the caret / recent input visible.
-        let text = sliding_tail(&text, notes_avail);
-        let style = if notes_selected {
-            Style::default().fg(ACCENT_ON).bg(ACCENT)
-        } else if notes_empty {
-            Style::default().fg(t.dim).bg(t.bg)
-        } else {
-            Style::default().fg(t.soft).bg(t.bg)
-        };
-        let raw = format!("{notes_indent}{text}");
-        note_lines.push(Line::from(Span::styled(pad_line(&raw, notes_box_w), style)));
-    }
-    frame.render_widget(
-        Paragraph::new(note_lines).style(Style::default().bg(t.bg)),
-        chunks[3],
-    );
-
-    // Create row
-    let create_selected = app.new_project.field == NewProjectField::Create;
-    let create_style = field_row_style(create_selected, &t);
-    let create_marker = if create_selected { ">" } else { " " };
-    let create_raw = format!("{create_marker} {:<11} {create_label}", "Create");
-    frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            pad_line(&create_raw, chunks[4].width.max(1) as usize),
-            create_style,
-        )))
-        .style(Style::default().bg(t.bg)),
-        chunks[4],
-    );
-
-    if show_status {
-        if let Some(status) = app.status.as_deref() {
-            let status_w = chunks[5].width.max(1) as usize;
-            frame.render_widget(
-                Paragraph::new(Line::from(Span::styled(
-                    pad_line(status, status_w),
-                    Style::default().fg(ACCENT).bg(t.bg),
-                )))
-                .style(Style::default().bg(t.bg)),
-                chunks[5],
-            );
-        }
-    }
-}
-
-fn new_project_popup_rect(screen: Rect, show_status: bool) -> Rect {
-    // Width: comfortable default, never larger than screen.
-    let width = if screen.width >= 44 {
-        screen.width.min(76).max(44)
-    } else {
-        screen.width.max(1)
-    };
-    // Height = border (2) + exact content rows (no blank status when idle).
-    // help1 + fields4 + notes_label1 + notes_box N + create1 [+ status1]
-    let content_rows: u16 =
-        1 + 4 + 1 + NOTES_VIEWPORT_ROWS + 1 + if show_status { 1 } else { 0 };
-    let height = content_rows
-        .saturating_add(2) // top + bottom border
-        .min(screen.height.max(1));
-    Rect {
-        x: screen.x + screen.width.saturating_sub(width) / 2,
-        y: screen.y + screen.height.saturating_sub(height) / 2,
-        width: width.min(screen.width.max(1)),
-        height,
-    }
-}
-
-/// Map a screen row to a New Project field using the same vertical layout as draw:
-/// help(1) · Name/Parent/Template/Init(4) · Notes label(1) · notes box(3) · Create(1).
-fn hit_test_new_project_field(inner: Rect, row: u16) -> Option<NewProjectField> {
-    if inner.height == 0 || row < inner.y || row >= inner.y.saturating_add(inner.height) {
-        return None;
-    }
-    let r = row - inner.y;
-    const HELP: u16 = 1;
-    const TOP_FIELDS: u16 = 4;
-    const NOTES_LABEL: u16 = 1;
-    let notes_box = NOTES_VIEWPORT_ROWS;
-    let top_start = HELP;
-    let notes_start = top_start + TOP_FIELDS;
-    let notes_end = notes_start + NOTES_LABEL + notes_box; // exclusive end of notes region
-    let create_row = notes_end;
-
-    if r < top_start {
-        return None; // help line
-    }
-    if r < notes_start {
-        return Some(
-            [
-                NewProjectField::Name,
-                NewProjectField::Parent,
-                NewProjectField::Template,
-                NewProjectField::InitAgent,
-            ][(r - top_start) as usize],
-        );
-    }
-    if r < notes_end {
-        return Some(NewProjectField::Notes);
-    }
-    if r == create_row {
-        return Some(NewProjectField::Create);
-    }
-    None // filler / status
 }
 
 #[cfg(test)]
