@@ -417,8 +417,10 @@
       true,
     );
 
+    // Cursor cell colors only need occasional refresh (theme/cursor style).
+    // Avoid running DOM probes on a tight timer — they fight the blink and burn main-thread time.
     requestAnimationFrame(syncDomCursorCellColors);
-    window.setInterval(syncDomCursorCellColors, 500);
+    window.setInterval(syncDomCursorCellColors, 2000);
 
     // === Focus handling for pure full-screen terminal ===
     // xterm.js only receives keyboard input when it has focus.
@@ -537,9 +539,20 @@
         }
       };
 
+      // Coalesce WS frames into one term.write. A single paint can arrive as
+      // dozens of ~1KB messages; writing each forces xterm to parse/render
+      // serially (feels like slow painting). rAF matches a display frame.
+      let writeBuf = '';
+      let writeRaf = 0;
       ws.onmessage = (event) => {
-        term.write(event.data);
-        requestAnimationFrame(syncDomCursorCellColors);
+        writeBuf += typeof event.data === 'string' ? event.data : '';
+        if (writeRaf) return;
+        writeRaf = requestAnimationFrame(() => {
+          writeRaf = 0;
+          const data = writeBuf;
+          writeBuf = '';
+          if (data) term.write(data);
+        });
       };
 
       ws.onclose = () => {

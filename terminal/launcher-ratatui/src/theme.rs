@@ -3,7 +3,6 @@
 use std::{
     env,
     process::{Command, Stdio},
-    sync::Mutex,
     time::{Duration, Instant},
 };
 

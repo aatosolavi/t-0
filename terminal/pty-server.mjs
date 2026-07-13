@@ -248,9 +248,17 @@ function appendHistory(session, data) {
 
 function replayHistory(session, ws) {
   if (!session.chunks || session.chunks.length === 0) return;
+  // Join into fewer websocket frames so xterm paints one big write, not N×1KB.
+  const MAX = 64 * 1024;
+  let buf = "";
   for (const chunk of session.chunks) {
-    sendToClient(ws, chunk);
+    if (buf.length > 0 && buf.length + chunk.length > MAX) {
+      sendToClient(ws, buf);
+      buf = "";
+    }
+    buf += chunk;
   }
+  if (buf) sendToClient(ws, buf);
 }
 
 function sendToClient(ws, data) {
@@ -259,10 +267,31 @@ function sendToClient(ws, data) {
   }
 }
 
+// node-pty often emits large draws as many ~1KB onData callbacks with gaps
+// between groups. Debounce so one ratatui frame ≈ one websocket write.
+// Large in-flight buffers keep a slightly longer window; tiny echo stays tight.
+const OUT_COALESCE_MS_SMALL = 4;
+const OUT_COALESCE_MS_LARGE = 16;
+const OUT_COALESCE_LARGE_AT = 4096;
+
 function broadcast(session, data) {
-  for (const client of session.clients) {
-    sendToClient(client, data);
-  }
+  if (typeof data !== "string" || data.length === 0) return;
+  session.outBuf = (session.outBuf || "") + data;
+  if (session.outFlushTimer != null) clearTimeout(session.outFlushTimer);
+  const delay =
+    session.outBuf.length >= OUT_COALESCE_LARGE_AT
+      ? OUT_COALESCE_MS_LARGE
+      : OUT_COALESCE_MS_SMALL;
+  session.outFlushTimer = setTimeout(() => {
+    session.outFlushTimer = null;
+    const buf = session.outBuf;
+    session.outBuf = "";
+    if (!buf) return;
+    for (const client of session.clients) {
+      sendToClient(client, buf);
+    }
+  }, delay);
+  session.outFlushTimer.unref?.();
 }
 
 function scheduleSessionCleanup(session) {

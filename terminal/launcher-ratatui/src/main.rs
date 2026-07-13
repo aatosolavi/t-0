@@ -12,13 +12,13 @@ use std::{
     collections::{HashMap, HashSet},
     env,
     fs,
-    io::{self, stdout},
+    io::{self, IsTerminal, stdout},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
-    sync::mpsc::{self, Receiver, TryRecvError},
-    thread,
+    process::Command,
+    sync::mpsc::{Receiver, TryRecvError},
     time::{Duration, Instant},
 };
+// (thread / Stdio live in jobs/git_meta)
 
 use crossterm::{
     cursor::Show,
@@ -976,10 +976,6 @@ impl App {
         }
     }
 
-    #[allow(dead_code)]
-    fn settings_item_count() -> usize {
-        settings_ui::ITEM_COUNT
-    }
 
     fn theme(&self) -> Theme {
         Theme::from_name(&self.state.settings.ui_theme)
@@ -1246,11 +1242,50 @@ impl App {
 
     fn keep_selected_visible(&mut self) {
         let height = self.hitboxes.list_height.max(1) as usize;
+        if self.visible_repos.is_empty() || height == 0 {
+            return;
+        }
         if self.selected_visible < self.offset {
             self.offset = self.selected_visible;
-        } else if self.selected_visible >= self.offset + height {
-            self.offset = self.selected_visible + 1 - height;
+            return;
         }
+        // Account for section separators: they eat visual rows but not repo indices.
+        // With a fixed-height list, repo-only math leaves the highlight below the fold.
+        while self.offset < self.selected_visible
+            && self.visual_rows_span(self.offset, self.selected_visible) > height
+        {
+            self.offset += 1;
+        }
+    }
+
+    /// Visual list rows needed to paint repos `start..=end` (inclusive), including
+    /// separators when not filtering. Matches `draw_repos` insertion rules.
+    fn visual_rows_span(&self, start: usize, end: usize) -> usize {
+        if end < start || end >= self.visible_repos.len() {
+            return 0;
+        }
+        if !self.filter.is_empty() {
+            return end - start + 1;
+        }
+        let mut rows = 0usize;
+        let mut prev_badge: Option<&str> = if start > 0 {
+            self.repos
+                .get(self.visible_repos[start - 1])
+                .map(|r| r.badge)
+        } else {
+            None
+        };
+        for vis in start..=end {
+            let Some(repo) = self.repos.get(self.visible_repos[vis]) else {
+                continue;
+            };
+            if prev_badge != Some(repo.badge) {
+                rows += 1; // separator before group
+                prev_badge = Some(repo.badge);
+            }
+            rows += 1;
+        }
+        rows
     }
 
     fn push_filter_char(&mut self, value: char) {
@@ -1414,31 +1449,6 @@ fn splash_enabled() -> bool {
     }
     LauncherState::load().settings.splash
 }
-
-/// Marketing / screenshot mode: fake public-looking workspaces (no personal scan).
-/// Enable with `MC_DEMO=1` or `MC_MOCK=1`.
-
-/// Demo workspaces under `~/work/...` so path column shows clean `~/work/foo` (not /tmp).
-
-/// Ensure empty dirs exist so path columns and side-actions don't look broken.
-fn ensure_demo_dirs(root: &Path) {
-    let names = [
-        "northwind",
-        "payload",
-        "relay",
-        "orbit",
-        "harbor",
-        "signal",
-        "ledger",
-        "t-0",
-    ];
-    for name in names {
-        let dir = root.join(name);
-        let _ = fs::create_dir_all(&dir);
-    }
-}
-
-/// Hardcoded workspace rows for screenshots / demos (no real discovery).
 
 const SPLASH_TOTAL_MS: u64 = 750;
 const SPLASH_WORDMARK_MS: u64 = 120;
@@ -1618,22 +1628,50 @@ fn run_app(
     draw_app_frame(terminal, app)?;
 
     loop {
+        // Dead PTY / revoked stdin (broker restart, tab closed with retained session
+        // then orphaned): exit cleanly instead of busy-looping at 80%+ CPU forever.
+        if !io::stdin().is_terminal() {
+            return Ok(None);
+        }
+
+        // Only push a redraw over the PTY when something visible changed.
+        // Idle unconditional paints waste bandwidth on the browser path.
+        let mut needs_draw = false;
+        let status_before = (app.status.is_some(), app.status_reveal);
+        let tips_before = (app.tips.idx, app.tips.reveal);
+        let git_before = app.git_pending;
+        let jobs_before = app.jobs.any_active();
+
         app.tick_status();
         app.tick_tips();
         for notice in app.jobs.poll() {
             let jobs::JobNotice::Status(s) = notice;
             app.set_status(s);
+            needs_draw = true;
         }
         app.poll_git_meta();
+        // Any completed inspect changes pending; redraw once for new badges.
+        if app.git_pending != git_before {
+            needs_draw = true;
+        }
         app.tick_hover_install();
 
-        // Faster poll while bars/status/reveal/git meta/esc-meta are active.
-        // Idle tips use 250 ms — never 40 ms for 30 s decoration.
-        let poll_ms = if app.status.is_some()
-            || app.status_reveal > 0
+        if (app.status.is_some(), app.status_reveal) != status_before
+            || (app.tips.idx, app.tips.reveal) != tips_before
+        {
+            needs_draw = true;
+        }
+        // Spinner frames while a job runs; one more frame when the bar clears.
+        if app.jobs.any_active() || jobs_before {
+            needs_draw = true;
+        }
+
+        // Faster poll only while something is animating (reveal / job spinner).
+        // Waiting on git metadata does not need 40 ms frames — updates redraw once.
+        let poll_ms = if app.status_reveal > 0
             || app.tips.reveal > 0
             || app.jobs.any_active()
-            || app.git_pending > 0
+            || app.status.is_some()
         {
             40
         } else {
@@ -1643,15 +1681,29 @@ fn run_app(
         // P1: drain all pending input, then draw once (paste / mouse motion).
         // Poll-before-read (after the first event) so `continue` in match arms is safe
         // and does not re-block on `event::read` skipping the draw.
-        if event::poll(Duration::from_millis(poll_ms))? {
+        let has_event = match event::poll(Duration::from_millis(poll_ms)) {
+            Ok(v) => v,
+            // Broken pipe / revoked TTY after broker death — do not spin.
+            Err(_) => return Ok(None),
+        };
+        if has_event {
             let mut first = true;
             loop {
-                if !first && !event::poll(Duration::ZERO)? {
-                    break;
+                if !first {
+                    match event::poll(Duration::ZERO) {
+                        Ok(false) => break,
+                        Err(_) => return Ok(None),
+                        Ok(true) => {}
+                    }
                 }
                 first = false;
-                match event::read()? {
+                let ev = match event::read() {
+                    Ok(e) => e,
+                    Err(_) => return Ok(None),
+                };
+                match ev {
             Event::Key(key) if key.kind == KeyEventKind::Press => {
+                needs_draw = true;
                 // Help overlay intercepts keys on the picker.
                 if app.help_open && app.screen == Screen::Picker {
                     match key.code {
@@ -1698,7 +1750,6 @@ fn run_app(
                         }
                         settings_ui::SettingsAction::Nudge(d) => app.nudge_settings_item(d),
                         settings_ui::SettingsAction::Activate => app.nudge_settings_item(1),
-                        _ => {}
                     }
                     continue;
                 }
@@ -1794,6 +1845,7 @@ fn run_app(
                     app.panel_area,
                 );
                 app.apply_np_action(action);
+                needs_draw = true;
             }
             Event::Mouse(mouse) if app.screen == Screen::FolderPicker => {
                 let list = Rect {
@@ -1803,6 +1855,7 @@ fn run_app(
                     height: app.hitboxes.list_height,
                 };
                 let _ = folder::handle_mouse(&mut app.folder, mouse, list);
+                needs_draw = true;
             }
             Event::Mouse(mouse) if app.screen == Screen::Settings => {
                 let panel = app.panel_area;
@@ -1816,15 +1869,29 @@ fn run_app(
                     settings_ui::SettingsAction::Nudge(d) => app.nudge_settings_item(d),
                     _ => {}
                 }
+                needs_draw = true;
             }
             Event::Mouse(mouse) if app.screen == Screen::Picker => match mouse.kind {
-                MouseEventKind::ScrollDown => app.select_next_repo(),
-                MouseEventKind::ScrollUp => app.select_previous_repo(),
+                MouseEventKind::ScrollDown => {
+                    app.select_next_repo();
+                    needs_draw = true;
+                }
+                MouseEventKind::ScrollUp => {
+                    app.select_previous_repo();
+                    needs_draw = true;
+                }
                 MouseEventKind::Moved => {
                     let hovered = app.action_at_mouse(mouse.column, mouse.row);
+                    let before = app.hover_missing.map(|(a, _)| a);
                     app.on_hover_action(hovered);
+                    let after = app.hover_missing.map(|(a, _)| a);
+                    // Mouse tracking floods moves; only repaint when hover target changes.
+                    if before != after {
+                        needs_draw = true;
+                    }
                 }
                 MouseEventKind::Down(MouseButton::Left) => {
+                    needs_draw = true;
                     let mut hit_action = None;
                     for (start, end, action) in &app.hitboxes.actions {
                         if mouse.row == app.hitboxes.action_row
@@ -1876,13 +1943,16 @@ fn run_app(
                     app.folder
                         .keep_selected_visible(app.hitboxes.list_height.max(1) as usize);
                 }
+                needs_draw = true;
             }
             _ => {}
                 }
             }
         }
 
-        draw_app_frame(terminal, app)?;
+        if needs_draw {
+            draw_app_frame(terminal, app)?;
+        }
     }
 }
 
@@ -1894,7 +1964,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         frame.area(),
     );
 
-    let area = picker_panel_rect(frame.area(), app);
+    let area = picker_panel_rect(frame.area());
     app.panel_area = area;
     let block = Block::default()
         .title(format!(" {APP_NAME} "))
@@ -1982,31 +2052,10 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     jobs::draw_bars(frame, &app.jobs, app.panel_area, t);
 }
 
-/// Visual list rows including section separators (for panel sizing).
-fn picker_list_content_rows(app: &App) -> u16 {
-    let n = app.visible_repos.len();
-    if n == 0 {
-        return MIN_LIST_ROWS; // empty-state still gets a tall-enough list region
-    }
-    if !app.filter.is_empty() {
-        return (n as u16).max(MIN_LIST_ROWS);
-    }
-    let mut seps = 0u16;
-    let mut prev: Option<&str> = None;
-    for &idx in &app.visible_repos {
-        let badge = app.repos[idx].badge;
-        if prev != Some(badge) {
-            seps += 1;
-            prev = Some(badge);
-        }
-    }
-    (n as u16).saturating_add(seps).max(MIN_LIST_ROWS)
-}
-
-/// Shared outer rect for picker, settings, and folder browser — same silhouette.
-fn picker_panel_rect(screen: Rect, app: &App) -> Rect {
-    let list_rows = picker_list_content_rows(app);
-    panel_rect(screen, PANEL_CHROME.saturating_add(list_rows))
+/// Shared outer rect for picker, settings, and folder browser — fixed silhouette.
+/// List height does **not** grow with favorites/repos; extra rows scroll inside.
+fn picker_panel_rect(screen: Rect) -> Rect {
+    panel_rect(screen, PANEL_CHROME.saturating_add(MIN_LIST_ROWS))
 }
 
 fn install_recipe(action: Action) -> Option<String> {
@@ -2035,7 +2084,7 @@ fn install_recipe(action: Action) -> Option<String> {
 
 fn draw_settings(frame: &mut Frame<'_>, app: &mut App) {
     let t = app.theme();
-    let area = picker_panel_rect(frame.area(), app);
+    let area = picker_panel_rect(frame.area());
     app.panel_area = area;
     let splash = if app.state.settings.splash {
         "on"
@@ -2083,7 +2132,7 @@ fn draw_folder_picker(frame: &mut Frame<'_>, app: &mut App) {
         Block::default().style(Style::default().bg(t.bg).fg(t.text)),
         frame.area(),
     );
-    let area = picker_panel_rect(frame.area(), app);
+    let area = picker_panel_rect(frame.area());
     app.panel_area = area;
     let (list_top, list_h) = folder::draw(
         frame,

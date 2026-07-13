@@ -77,9 +77,6 @@ pub fn demo_repos() -> Vec<Repo> {
         .collect()
 }
 
-const SPLASH_RULE_START_MS: u64 = 450;
-
-
 pub fn discover_candidates(state: &LauncherState) -> Vec<(PathBuf, &'static str)> {
     if demo_mode_enabled() {
         // Paths only; git meta left empty for demo too (or filled sync in demo_repos).
