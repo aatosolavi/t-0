@@ -24,7 +24,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph},
     Frame, Terminal,
 };
 use serde::{Deserialize, Serialize};
@@ -3823,11 +3823,29 @@ Add architecture and workflow links as the project grows.
     Ok(target)
 }
 
+/// Pad to `width` display cells so background fully covers picker bleed-through.
+fn pad_line(s: &str, width: usize) -> String {
+    let count = s.chars().count();
+    if count >= width {
+        s.chars().take(width).collect()
+    } else {
+        format!("{s}{}", " ".repeat(width - count))
+    }
+}
+
 /// Modal popup over the picker (not a full-screen replacement).
 fn draw_new_project_popup(frame: &mut Frame<'_>, app: &mut App) {
     let t = app.theme();
     let area = new_project_popup_rect(frame.area());
     app.panel_area = area;
+
+    // Opaque layer: Clear removes underneath glyphs; solid fill paints every cell.
+    // Without this, short Paragraph lines leave picker text bleeding through.
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Block::default().style(Style::default().bg(t.bg).fg(t.text)),
+        area,
+    );
 
     let block = Block::default()
         .title(format!(" {APP_NAME} · New project "))
@@ -3837,6 +3855,12 @@ fn draw_new_project_popup(frame: &mut Frame<'_>, app: &mut App) {
     frame.render_widget(block, area);
 
     let inner = inset(area, 2, 1);
+    // Fill inner again so margins/padding never show picker content.
+    frame.render_widget(
+        Block::default().style(Style::default().bg(t.bg)),
+        inner,
+    );
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -3846,11 +3870,16 @@ fn draw_new_project_popup(frame: &mut Frame<'_>, app: &mut App) {
         ])
         .split(inner);
 
+    let col_w = chunks[0].width.max(1) as usize;
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
-            "tab fields · ←/→ cycle · enter create+init · esc close",
-            Style::default().fg(t.dim),
-        ))),
+            pad_line(
+                "tab fields · ←/→ cycle · enter create+init · esc close",
+                col_w,
+            ),
+            Style::default().fg(t.dim).bg(t.bg),
+        )))
+        .style(Style::default().bg(t.bg)),
         chunks[0],
     );
 
@@ -3888,6 +3917,7 @@ fn draw_new_project_popup(frame: &mut Frame<'_>, app: &mut App) {
         ("Create", "scaffold + headless init".into(), NewProjectField::Create),
     ];
 
+    let field_w = chunks[1].width.max(1) as usize;
     let mut lines = Vec::new();
     for (label, value, field) in rows {
         let selected = app.new_project.field == field;
@@ -3897,51 +3927,52 @@ fn draw_new_project_popup(frame: &mut Frame<'_>, app: &mut App) {
                 .bg(ACCENT)
                 .add_modifier(Modifier::BOLD)
         } else if field == NewProjectField::Notes && app.new_project.notes.is_empty() {
-            Style::default().fg(t.dim)
+            Style::default().fg(t.dim).bg(t.bg)
         } else {
-            Style::default().fg(t.soft)
+            Style::default().fg(t.soft).bg(t.bg)
         };
         let marker = if selected { ">" } else { " " };
-        let cursor = if selected
-            && matches!(field, NewProjectField::Name | NewProjectField::Notes)
-            && !app.new_project.notes.is_empty()
-            || (selected && field == NewProjectField::Name && !app.new_project.name.is_empty())
-        {
-            "▌"
-        } else if selected && matches!(field, NewProjectField::Name | NewProjectField::Notes) {
-            "▌"
-        } else {
-            ""
-        };
-        // Show cursor on empty name/notes when selected
         let value_out = if selected && matches!(field, NewProjectField::Name | NewProjectField::Notes)
         {
-            if field == NewProjectField::Name && app.new_project.name.is_empty() {
-                format!("▌{value}")
-            } else if field == NewProjectField::Notes && app.new_project.notes.is_empty() {
+            if (field == NewProjectField::Name && app.new_project.name.is_empty())
+                || (field == NewProjectField::Notes && app.new_project.notes.is_empty())
+            {
                 format!("▌{value}")
             } else {
-                format!("{value}{cursor}")
+                format!("{value}▌")
             }
         } else {
             value
         };
+        let raw = format!("{marker} {label:<11} {value_out}");
+        lines.push(Line::from(Span::styled(pad_line(&raw, field_w), style)));
+    }
+    // Pad remaining rows in the field area with blank bg lines so nothing peeks through.
+    let rows_h = chunks[1].height as usize;
+    while lines.len() < rows_h {
         lines.push(Line::from(Span::styled(
-            format!("{marker} {label:<11} {value_out}"),
-            style,
+            pad_line("", field_w),
+            Style::default().bg(t.bg).fg(t.text),
         )));
     }
-    frame.render_widget(Paragraph::new(lines), chunks[1]);
+    frame.render_widget(
+        Paragraph::new(lines).style(Style::default().bg(t.bg)),
+        chunks[1],
+    );
 
-    if let Some(status) = &app.status {
-        frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(
-                status.clone(),
-                Style::default().fg(ACCENT),
-            ))),
-            chunks[2],
-        );
-    }
+    let status_w = chunks[2].width.max(1) as usize;
+    let status_text = app
+        .status
+        .as_deref()
+        .unwrap_or(" ");
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            pad_line(status_text, status_w),
+            Style::default().fg(ACCENT).bg(t.bg),
+        )))
+        .style(Style::default().bg(t.bg)),
+        chunks[2],
+    );
 }
 
 fn new_project_popup_rect(screen: Rect) -> Rect {
