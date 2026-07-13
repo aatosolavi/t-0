@@ -3017,8 +3017,8 @@ fn draw_folder_picker(frame: &mut Frame<'_>, app: &mut App) {
         frame.area(),
     );
 
-    // Slightly taller panel so browsing feels roomy.
-    let area = folder_picker_rect(frame.area());
+    // Same outer size as the main picker / settings panel; list scrolls inside.
+    let area = centered_rect(frame.area());
     app.panel_area = area;
 
     let title_path = display_path(app.folder.current_path());
@@ -3172,17 +3172,6 @@ fn draw_folder_picker(frame: &mut Frame<'_>, app: &mut App) {
         ])
     };
     frame.render_widget(Paragraph::new(footer), chunks[4]);
-}
-
-fn folder_picker_rect(screen: Rect) -> Rect {
-    let width = screen.width.min(MAX_WIDTH).max(48);
-    let height = screen.height.saturating_sub(2).min(28).max(14);
-    Rect {
-        x: screen.x + screen.width.saturating_sub(width) / 2,
-        y: screen.y + screen.height.saturating_sub(height) / 2,
-        width,
-        height,
-    }
 }
 
 fn draw_actions(frame: &mut Frame<'_>, app: &mut App, area: Rect, t: Theme) {
