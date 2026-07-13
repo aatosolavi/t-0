@@ -3118,14 +3118,15 @@ fn draw_help_overlay(frame: &mut Frame<'_>, _app: &App) {
         "g            open GitHub (if remote)",
         "hover        dim agent chip → install missing CLI",
         "theme        Settings → UI theme (auto / light / dark)",
-        "",
         "esc / ?      close this help",
     ];
     let content = lines.len() as u16;
     let width = frame.area().width.min(72).max(40);
-    let height = (content + 4)
+    // +2 = top/bottom borders. inset(..., 1) already sits between them;
+    // +4 left two empty rows under the last help line.
+    let height = (content + 2)
         .min(frame.area().height.saturating_sub(2))
-        .max(10);
+        .max(content.saturating_add(2));
     let area = Rect {
         x: frame.area().x + frame.area().width.saturating_sub(width) / 2,
         y: frame.area().y + frame.area().height.saturating_sub(height) / 2,
