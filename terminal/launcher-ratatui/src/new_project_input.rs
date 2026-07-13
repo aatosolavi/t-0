@@ -1,7 +1,9 @@
 //! New Project key/mouse handling → side-effect actions for App to apply.
 //! Form mutations (text, field, template) happen here; App owns create/cycle/nav.
-
-use std::time::{Duration, Instant};
+//!
+//! Esc-meta prefix handling was removed: browser xterm sets `macOptionIsMeta: true`
+//! (`terminal/index.html`) so Option+Backspace arrives as real Meta, not Esc then BS.
+//! Word-delete still works via Alt/Ctrl+W/Super+Backspace chords.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
@@ -11,7 +13,7 @@ use crate::new_project::{
     delete_last_word, notes_lines, NAME_MAX_CHARS, NOTES_MAX_CHARS, NOTES_VIEWPORT_ROWS,
 };
 use crate::new_project_ui;
-use crate::{NewProjectField, NewProjectForm, TextDelete, ESC_META_WINDOW};
+use crate::{NewProjectField, NewProjectForm, TextDelete};
 
 /// Side effects that require App (create, navigation, init cycle).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,36 +49,12 @@ fn text_delete(form: &mut NewProjectForm, kind: TextDelete) {
 }
 
 /// Handle a key while New Project is open.
-pub fn handle_key(
-    form: &mut NewProjectForm,
-    key: KeyEvent,
-    esc_meta_armed_at: &mut Option<Instant>,
-) -> NpAction {
+pub fn handle_key(form: &mut NewProjectForm, key: KeyEvent) -> NpAction {
     let mods = key.modifiers;
     let ctrl = mods.contains(KeyModifiers::CONTROL);
     let alt = mods.contains(KeyModifiers::ALT);
     let super_key = mods.contains(KeyModifiers::SUPER);
     let plain_or_shift = mods.is_empty() || mods == KeyModifiers::SHIFT;
-
-    // Option+Backspace often arrives as Esc then Backspace (Meta prefix).
-    if let Some(armed) = esc_meta_armed_at.take() {
-        if armed.elapsed() < ESC_META_WINDOW {
-            match key.code {
-                KeyCode::Backspace | KeyCode::Delete => {
-                    text_delete(form, TextDelete::Word);
-                    return NpAction::None;
-                }
-                KeyCode::Char(c) if c == '\u{7f}' || c == '\u{08}' => {
-                    text_delete(form, TextDelete::Word);
-                    return NpAction::None;
-                }
-                KeyCode::Esc => return NpAction::Close,
-                _ => return NpAction::Close,
-            }
-        }
-        // Timed out before this key: Esc alone closes, drop this key.
-        return NpAction::Close;
-    }
 
     // Ctrl+Enter always creates from any field.
     if matches!(key.code, KeyCode::Enter) && ctrl {
@@ -112,18 +90,7 @@ pub fn handle_key(
     }
 
     match key.code {
-        KeyCode::Esc => {
-            if matches!(
-                form.field,
-                NewProjectField::Name | NewProjectField::Notes
-            ) && mods.is_empty()
-            {
-                *esc_meta_armed_at = Some(Instant::now());
-                NpAction::None
-            } else {
-                NpAction::Close
-            }
-        }
+        KeyCode::Esc => NpAction::Close,
         KeyCode::Down => {
             if form.field == NewProjectField::Notes {
                 let n = notes_lines(&form.notes).len();
@@ -307,17 +274,6 @@ pub fn handle_mouse(
     }
 }
 
-/// Idle: Esc alone (no follow-up within window) closes the popup.
-pub fn tick_esc_meta(esc_meta_armed_at: &mut Option<Instant>) -> NpAction {
-    if let Some(armed) = *esc_meta_armed_at {
-        if armed.elapsed() >= ESC_META_WINDOW {
-            *esc_meta_armed_at = None;
-            return NpAction::Close;
-        }
-    }
-    NpAction::None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -358,8 +314,7 @@ mod tests {
     #[test]
     fn enter_advances_from_name() {
         let mut f = form();
-        let mut esc = None;
-        let a = handle_key(&mut f, key(KeyCode::Enter), &mut esc);
+        let a = handle_key(&mut f, key(KeyCode::Enter));
         assert_eq!(a, NpAction::None);
         assert_eq!(f.field, NewProjectField::Parent);
     }
@@ -368,43 +323,31 @@ mod tests {
     fn shift_enter_newline_in_notes() {
         let mut f = form();
         f.field = NewProjectField::Notes;
-        let mut esc = None;
-        let a = handle_key(
-            &mut f,
-            key_mod(KeyCode::Enter, KeyModifiers::SHIFT),
-            &mut esc,
-        );
+        let a = handle_key(&mut f, key_mod(KeyCode::Enter, KeyModifiers::SHIFT));
         assert_eq!(a, NpAction::None);
         assert!(f.notes.contains('\n') || f.notes.ends_with('\n') || f.notes == "\n");
         assert_eq!(f.field, NewProjectField::Notes);
     }
 
     #[test]
-    fn esc_from_template_closes() {
+    fn esc_from_name_closes_immediately() {
         let mut f = form();
-        f.field = NewProjectField::Template;
-        let mut esc = None;
-        assert_eq!(handle_key(&mut f, key(KeyCode::Esc), &mut esc), NpAction::Close);
+        f.field = NewProjectField::Name;
+        assert_eq!(handle_key(&mut f, key(KeyCode::Esc)), NpAction::Close);
     }
 
     #[test]
     fn create_field_enter_creates() {
         let mut f = form();
         f.field = NewProjectField::Create;
-        let mut esc = None;
-        assert_eq!(handle_key(&mut f, key(KeyCode::Enter), &mut esc), NpAction::Create);
+        assert_eq!(handle_key(&mut f, key(KeyCode::Enter)), NpAction::Create);
     }
 
     #[test]
     fn ctrl_enter_creates_from_name() {
         let mut f = form();
-        let mut esc = None;
         assert_eq!(
-            handle_key(
-                &mut f,
-                key_mod(KeyCode::Enter, KeyModifiers::CONTROL),
-                &mut esc
-            ),
+            handle_key(&mut f, key_mod(KeyCode::Enter, KeyModifiers::CONTROL)),
             NpAction::Create
         );
     }
@@ -412,16 +355,8 @@ mod tests {
     #[test]
     fn typing_name_appends() {
         let mut f = form();
-        let mut esc = None;
-        handle_key(&mut f, key(KeyCode::Char('a')), &mut esc);
-        handle_key(&mut f, key(KeyCode::Char('b')), &mut esc);
+        handle_key(&mut f, key(KeyCode::Char('a')));
+        handle_key(&mut f, key(KeyCode::Char('b')));
         assert_eq!(f.name, "ab");
-    }
-
-    #[test]
-    fn esc_meta_timeout_closes() {
-        let mut armed = Some(Instant::now() - Duration::from_millis(500));
-        assert_eq!(tick_esc_meta(&mut armed), NpAction::Close);
-        assert!(armed.is_none());
     }
 }

@@ -306,6 +306,7 @@
       scrollback: 10000,
       // macOS: Option must act as Meta/Alt so Option+Backspace reaches the PTY as
       // word-delete (otherwise Option often inserts nothing useful / plain Backspace).
+      // Keep true — launcher dropped Esc-meta prefix handling; Option+BS relies on this.
       macOptionIsMeta: true,
       fastScrollModifier: 'alt',
       rightClickSelectsWord: false,

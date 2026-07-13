@@ -694,9 +694,6 @@ pub(crate) enum TextDelete {
     Line,
 }
 
-/// How long to wait after Esc for a Meta-prefixed key (Option+Backspace → Esc, Backspace).
-pub(crate) const ESC_META_WINDOW: Duration = Duration::from_millis(120);
-
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum NewProjectField {
     Name,
@@ -941,9 +938,6 @@ struct App {
     hover_missing: Option<(Action, Instant)>,
     /// Last drawn panel rect (for progress bar placement).
     panel_area: Rect,
-    /// Esc pressed while editing Name/Notes — many terminals send Option+Backspace
-    /// as Esc then Backspace (Meta prefix). Armed Esc waits briefly for the follow-up.
-    esc_meta_armed_at: Option<Instant>,
     /// Async git badges (paint rows first; fill in as inspect_git finishes).
     git_rx: Option<Receiver<(PathBuf, GitMeta)>>,
     git_pending: usize,
@@ -1001,7 +995,6 @@ impl App {
             jobs: jobs::Jobs::default(),
             hover_missing: None,
             panel_area: Rect::default(),
-            esc_meta_armed_at: None,
             git_rx: Some(git_rx),
             git_pending,
             git_started_at,
@@ -1070,7 +1063,6 @@ impl App {
         match action {
             NpAction::None => {}
             NpAction::Close => {
-                self.esc_meta_armed_at = None;
                 self.screen = Screen::Picker;
                 self.clear_status();
             }
@@ -1995,7 +1987,6 @@ fn run_app(
             || app.tips.reveal > 0
             || app.jobs.any_active()
             || app.git_pending > 0
-            || app.esc_meta_armed_at.is_some()
         {
             40
         } else {
@@ -2094,11 +2085,7 @@ fn run_app(
                 }
 
                 if app.screen == Screen::NewProject {
-                    let action = new_project_input::handle_key(
-                        &mut app.new_project,
-                        key,
-                        &mut app.esc_meta_armed_at,
-                    );
+                    let action = new_project_input::handle_key(&mut app.new_project, key);
                     app.apply_np_action(action);
                     continue;
                 }
@@ -2306,9 +2293,6 @@ fn run_app(
             _ => {}
                 }
             }
-        } else if app.screen == Screen::NewProject {
-            let action = new_project_input::tick_esc_meta(&mut app.esc_meta_armed_at);
-            app.apply_np_action(action);
         }
 
         draw_app_frame(terminal, app)?;
