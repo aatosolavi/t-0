@@ -4,6 +4,9 @@ mod new_project_ui;
 mod jobs;
 mod folder;
 mod settings_ui;
+mod theme;
+mod git_meta;
+mod discover;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -57,7 +60,7 @@ pub(crate) const ACCENT: Color = Color::Rgb(249, 115, 22);
 /// Text on filled accent chips (dark enough for contrast on orange).
 pub(crate) const ACCENT_ON: Color = Color::Rgb(23, 23, 23);
 /// Dirty branch / amber metadata (fallback; prefer Theme.warn).
-const AMBER: Color = Color::Rgb(180, 120, 0);
+pub(crate) const AMBER: Color = Color::Rgb(180, 120, 0);
 
 /// Braille spinner frames for background jobs (~100 ms each).
 /// Idle tips — lowest-priority status-line content (preempted by real flashes).
@@ -87,7 +90,7 @@ const MIN_PANEL_HEIGHT: u16 = 22;
 const MIN_LIST_ROWS: u16 = 14;
 
 #[derive(Clone)]
-struct Repo {
+pub(crate) struct Repo {
     name: String,
     path: PathBuf,
     badge: &'static str,
@@ -256,7 +259,7 @@ struct LastLaunch {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-struct SettingsFile {
+pub(crate) struct SettingsFile {
     #[serde(default = "default_true")]
     splash: bool,
     /// Action id, e.g. "grok", "cursor", "pi"
@@ -307,162 +310,7 @@ impl Default for SettingsFile {
     }
 }
 
-/// Palette that stays readable on both terminal backgrounds.
-#[derive(Clone, Copy)]
-pub(crate) struct Theme {
-    pub bg: Color,
-    pub text: Color,
-    pub muted: Color,
-    pub dim: Color,
-    pub key: Color,
-    pub border: Color,
-    /// Unselected agent chip / list row.
-    pub soft: Color,
-    /// Selected row full-width fill (one step off bg).
-    pub surface: Color,
-    /// Git dirty / ahead — never share hue with ACCENT.
-    pub warn: Color,
-}
-
-impl Theme {
-    pub(crate) fn dark() -> Self {
-        Self {
-            bg: Color::Rgb(20, 20, 20),
-            text: Color::White,
-            muted: Color::Gray,
-            dim: Color::DarkGray,
-            key: Color::White,
-            border: Color::DarkGray,
-            soft: Color::Gray,
-            surface: Color::Rgb(38, 38, 38), // #262626
-            warn: AMBER,
-        }
-    }
-
-    fn light() -> Self {
-        // Stronger contrast muted text (zinc-ish); needs truecolor (Ghostty / xterm.js).
-        Self {
-            bg: Color::Rgb(250, 250, 250),
-            text: Color::Rgb(23, 23, 23),
-            muted: Color::Rgb(82, 82, 91),   // zinc-600
-            dim: Color::Rgb(113, 113, 122), // zinc-500
-            key: Color::Rgb(24, 24, 27),
-            border: Color::Rgb(161, 161, 170),
-            soft: Color::Rgb(63, 63, 70), // zinc-700
-            surface: Color::Rgb(236, 236, 236), // #ececec
-            warn: Color::Rgb(161, 98, 7),       // darker amber on light
-        }
-    }
-
-    fn from_name(name: &str) -> Self {
-        match resolved_theme_mode(name) {
-            "light" => Self::light(),
-            _ => Self::dark(),
-        }
-    }
-}
-
-/// Resolve preference to concrete `"light"` | `"dark"`.
-fn resolved_theme_mode(preference: &str) -> &'static str {
-    if preference.eq_ignore_ascii_case("light") {
-        return "light";
-    }
-    if preference.eq_ignore_ascii_case("dark") {
-        return "dark";
-    }
-    // auto (or unknown) — detect terminal / OS.
-    if detect_system_is_light() {
-        "light"
-    } else {
-        "dark"
-    }
-}
-
-fn format_theme_label(preference: &str) -> String {
-    if preference.eq_ignore_ascii_case("auto")
-        || (!preference.eq_ignore_ascii_case("light")
-            && !preference.eq_ignore_ascii_case("dark"))
-    {
-        format!("auto ({})", resolved_theme_mode("auto"))
-    } else {
-        preference.to_ascii_lowercase()
-    }
-}
-
-/// Best-effort light/dark detection for `ui_theme = auto`.
-/// Order: MC_UI_THEME → COLORFGBG → macOS appearance → dark.
-fn detect_system_is_light() -> bool {
-    if let Ok(v) = env::var("MC_UI_THEME") {
-        let v = v.trim();
-        if v.eq_ignore_ascii_case("light") {
-            return true;
-        }
-        if v.eq_ignore_ascii_case("dark") {
-            return false;
-        }
-    }
-
-    if let Some(is_light) = colorfgbg_is_light() {
-        return is_light;
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        return macos_appearance_is_light();
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        false
-    }
-}
-
-/// Parse `COLORFGBG` (e.g. `15;0` = light fg / dark bg). Returns None if unset/unparseable.
-fn colorfgbg_is_light() -> Option<bool> {
-    let v = env::var("COLORFGBG").ok()?;
-    let bg = v
-        .split([';', ':'])
-        .filter(|s| !s.is_empty())
-        .last()?
-        .trim()
-        .parse::<u16>()
-        .ok()?;
-    // xterm convention: 7 and 15 are light backgrounds; 0–6 / 8–14 are dark-ish.
-    Some(bg == 7 || bg == 15)
-}
-
-#[cfg(target_os = "macos")]
-fn macos_appearance_is_light() -> bool {
-    use std::sync::Mutex;
-    static CACHE: Mutex<Option<(Instant, bool)>> = Mutex::new(None);
-
-    if let Ok(guard) = CACHE.lock() {
-        if let Some((at, is_light)) = *guard {
-            if at.elapsed() < Duration::from_secs(5) {
-                return is_light;
-            }
-        }
-    }
-
-    // `AppleInterfaceStyle` is "Dark" when dark; the key is missing in light mode.
-    let is_light = match Command::new("defaults")
-        .args(["read", "-g", "AppleInterfaceStyle"])
-        .stderr(Stdio::null())
-        .stdout(Stdio::piped())
-        .output()
-    {
-        Ok(out) => {
-            let s = String::from_utf8_lossy(&out.stdout);
-            !s.trim().eq_ignore_ascii_case("Dark")
-        }
-        Err(_) => false, // fall back dark if defaults unavailable
-    };
-
-    if let Ok(mut guard) = CACHE.lock() {
-        *guard = Some((Instant::now(), is_light));
-    }
-    is_light
-}
+use theme::{format_theme_label, Theme};
 
 #[derive(Clone, Serialize, Deserialize)]
 struct LauncherStateFile {
@@ -490,7 +338,7 @@ impl Default for LauncherStateFile {
 }
 
 #[derive(Clone, Default)]
-struct LauncherState {
+pub(crate) struct LauncherState {
     last: Option<(PathBuf, Action)>,
     favorites: Vec<PathBuf>,
     agents: HashMap<PathBuf, Action>,
@@ -797,22 +645,16 @@ struct App {
     status_reveal: u8,
 }
 
-/// Git snapshot for one workspace row (filled asynchronously).
-#[derive(Clone, Debug, Default)]
-struct GitMeta {
-    branch: Option<String>,
-    dirty: bool,
-    ahead: u32,
-}
+use git_meta::GitMeta;
 
 impl App {
     fn new() -> Self {
         let state = LauncherState::load();
         let root = workspace_root(&state.settings);
-        let candidates = discover_candidates(&state);
+        let candidates = discover::discover_candidates(&state);
         let paths: Vec<PathBuf> = candidates.iter().map(|(p, _)| p.clone()).collect();
-        let repos = repos_from_candidates(candidates, &state);
-        let (git_rx, git_pending) = spawn_git_metadata(paths);
+        let repos = discover::repos_from_candidates(candidates, &state);
+        let (git_rx, git_pending) = git_meta::spawn_git_metadata(paths);
         let git_started_at = if git_pending > 0 {
             Some(Instant::now())
         } else {
@@ -853,11 +695,11 @@ impl App {
 
     /// Rebuild workspace list from FS only, then fan out git inspect in the background.
     fn refresh_repos(&mut self) {
-        let candidates = discover_candidates(&self.state);
+        let candidates = discover::discover_candidates(&self.state);
         let paths: Vec<PathBuf> = candidates.iter().map(|(p, _)| p.clone()).collect();
-        self.repos = repos_from_candidates(candidates, &self.state);
+        self.repos = discover::repos_from_candidates(candidates, &self.state);
         self.apply_filter();
-        let (rx, n) = spawn_git_metadata(paths);
+        let (rx, n) = git_meta::spawn_git_metadata(paths);
         self.git_rx = Some(rx);
         self.git_pending = n;
         self.git_started_at = if n > 0 { Some(Instant::now()) } else { None };
@@ -1560,7 +1402,7 @@ fn main() -> io::Result<()> {
 /// Splash: env MC_SPLASH wins; else launcher-state settings.splash (default on).
 /// Demo/mock mode skips splash so marketing screenshots are instant.
 fn splash_enabled() -> bool {
-    if demo_mode_enabled() {
+    if discover::demo_mode_enabled() {
         return false;
     }
     if let Ok(value) = env::var("MC_SPLASH") {
@@ -1572,22 +1414,8 @@ fn splash_enabled() -> bool {
 
 /// Marketing / screenshot mode: fake public-looking workspaces (no personal scan).
 /// Enable with `MC_DEMO=1` or `MC_MOCK=1`.
-fn demo_mode_enabled() -> bool {
-    for key in ["MC_DEMO", "MC_MOCK"] {
-        if let Ok(value) = env::var(key) {
-            let v = value.trim().to_ascii_lowercase();
-            if v == "1" || v == "true" || v == "yes" || v == "on" {
-                return true;
-            }
-        }
-    }
-    false
-}
 
 /// Demo workspaces under `~/work/...` so path column shows clean `~/work/foo` (not /tmp).
-fn demo_root() -> PathBuf {
-    home_dir().join("work")
-}
 
 /// Ensure empty dirs exist so path columns and side-actions don't look broken.
 fn ensure_demo_dirs(root: &Path) {
@@ -1608,35 +1436,6 @@ fn ensure_demo_dirs(root: &Path) {
 }
 
 /// Hardcoded workspace rows for screenshots / demos (no real discovery).
-fn demo_repos() -> Vec<Repo> {
-    let root = demo_root();
-    ensure_demo_dirs(&root);
-
-    // name, dir, branch, dirty, ahead, agent, badge
-    let entries: &[(&str, &str, &str, bool, u32, Option<Action>, &str)] = &[
-        ("northwind", "northwind", "main", false, 0, Some(Action::Claude), "★"),
-        ("payload", "payload", "feature/auth", true, 2, Some(Action::Grok), "★"),
-        ("relay", "relay", "develop", false, 0, Some(Action::Cursor), "recent"),
-        ("orbit", "orbit", "main", true, 1, Some(Action::Claude), "recent"),
-        ("harbor", "harbor", "release/1.2", false, 0, Some(Action::Codex), ""),
-        ("signal", "signal", "main", false, 0, Some(Action::Grok), "last"),
-        ("ledger", "ledger", "feat/import", true, 0, Some(Action::Pi), ""),
-        ("t-0", "t-0", "main", false, 0, Some(Action::Claude), "root"),
-    ];
-
-    entries
-        .iter()
-        .map(|(name, dir, branch, dirty, ahead, agent, badge)| Repo {
-            name: (*name).to_string(),
-            path: root.join(dir),
-            badge: *badge,
-            git_branch: Some((*branch).to_string()),
-            git_dirty: *dirty,
-            git_ahead: *ahead,
-            remembered_agent: *agent,
-        })
-        .collect()
-}
 
 const SPLASH_TOTAL_MS: u64 = 750;
 const SPLASH_WORDMARK_MS: u64 = 120;
@@ -2731,170 +2530,8 @@ pub(crate) fn inset(area: Rect, horizontal: u16, vertical: u16) -> Rect {
 }
 
 /// FS-only workspace list (no git). Instant; safe for first paint.
-fn discover_candidates(state: &LauncherState) -> Vec<(PathBuf, &'static str)> {
-    if demo_mode_enabled() {
-        // Paths only; git meta left empty for demo too (or filled sync in demo_repos).
-        return demo_repos()
-            .into_iter()
-            .map(|r| (r.path, r.badge))
-            .collect();
-    }
 
-    let home = home_dir();
-    let data = data_dir();
-    let root = workspace_root(&state.settings);
-    let mut candidates: Vec<(PathBuf, &'static str)> = Vec::new();
-    let mut seen = HashSet::new();
 
-    for path in &state.favorites {
-        push_candidate(&mut candidates, &mut seen, path.clone(), "★");
-    }
-    for recent in read_recent_workspaces(&data) {
-        push_candidate(&mut candidates, &mut seen, recent, "recent");
-    }
-    if let Some(last_cwd) = read_last_cwd(&data) {
-        push_candidate(&mut candidates, &mut seen, last_cwd, "last");
-    }
-    push_candidate(&mut candidates, &mut seen, root.clone(), "root");
-
-    if let Ok(entries) = fs::read_dir(&root) {
-        let mut paths: Vec<PathBuf> = entries
-            .flatten()
-            .filter_map(|entry| {
-                let path = entry.path();
-                if path.file_name()?.to_string_lossy().starts_with('.') {
-                    return None;
-                }
-                if path.join(".git").exists() {
-                    Some(path)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        paths.sort_by_key(|path| path.file_name().map(|name| name.to_os_string()));
-        for path in paths {
-            push_candidate(&mut candidates, &mut seen, path, "");
-        }
-    }
-
-    if candidates.is_empty() {
-        push_candidate(&mut candidates, &mut seen, home, "home");
-    }
-    candidates
-}
-
-fn repos_from_candidates(
-    candidates: Vec<(PathBuf, &'static str)>,
-    state: &LauncherState,
-) -> Vec<Repo> {
-    if demo_mode_enabled() {
-        return demo_repos();
-    }
-    candidates
-        .into_iter()
-        .map(|(path, badge)| {
-            let name = path
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_else(|| path.display().to_string());
-            let remembered_agent = state.agent_for(&path);
-            Repo {
-                name,
-                path,
-                badge,
-                git_branch: None,
-                git_dirty: false,
-                git_ahead: 0,
-                remembered_agent,
-            }
-        })
-        .collect()
-}
-
-/// Fan out git inspect; UI paints immediately and `poll_git_meta` fills badges.
-/// ponytail: one thread per path; a stuck network/iCloud mount can leak a blocked thread
-/// for process lifetime. UI side abandons the channel after 10 s (`git_started_at`) so the
-/// poll loop is not pinned at 40 ms forever.
-fn spawn_git_metadata(paths: Vec<PathBuf>) -> (Receiver<(PathBuf, GitMeta)>, usize) {
-    // Demo ships pre-baked branch/dirty; real inspect would clobber badges with empty.
-    if demo_mode_enabled() {
-        let (tx, rx) = mpsc::channel();
-        drop(tx);
-        return (rx, 0);
-    }
-    let n = paths.len();
-    let (tx, rx) = mpsc::channel();
-    for path in paths {
-        let tx = tx.clone();
-        thread::spawn(move || {
-            let (branch, dirty, ahead) = inspect_git(&path);
-            let _ = tx.send((
-                path,
-                GitMeta {
-                    branch,
-                    dirty,
-                    ahead,
-                },
-            ));
-        });
-    }
-    (rx, n)
-}
-
-fn push_candidate(
-    candidates: &mut Vec<(PathBuf, &'static str)>,
-    seen: &mut HashSet<PathBuf>,
-    path: PathBuf,
-    badge: &'static str,
-) {
-    if path.is_dir() && seen.insert(path.clone()) {
-        candidates.push((path, badge));
-    }
-}
-
-/// Git snapshot for row metadata in a single spawn: `status --porcelain=v2 --branch`
-/// carries branch, dirty, and ahead at once (also covers worktrees / nested repos).
-/// Failures → no git badge.
-fn inspect_git(path: &Path) -> (Option<String>, bool, u32) {
-    let output = match Command::new("git")
-        .args([
-            "-C",
-            &path.display().to_string(),
-            "status",
-            "--porcelain=v2",
-            "--branch",
-        ])
-        .output()
-    {
-        Ok(o) if o.status.success() => o,
-        _ => return (None, false, 0),
-    };
-    parse_porcelain_v2(&String::from_utf8_lossy(&output.stdout))
-}
-
-fn parse_porcelain_v2(text: &str) -> (Option<String>, bool, u32) {
-    let mut branch = None;
-    let mut dirty = false;
-    let mut ahead = 0u32;
-    for line in text.lines() {
-        if let Some(head) = line.strip_prefix("# branch.head ") {
-            if head != "(detached)" && !head.is_empty() {
-                branch = Some(head.to_string());
-            }
-        } else if let Some(ab) = line.strip_prefix("# branch.ab ") {
-            ahead = ab
-                .split_whitespace()
-                .next()
-                .and_then(|a| a.strip_prefix('+'))
-                .and_then(|a| a.parse().ok())
-                .unwrap_or(0);
-        } else if !line.starts_with('#') && !line.is_empty() {
-            dirty = true;
-        }
-    }
-    (branch, dirty, ahead)
-}
 
 fn open_in_finder(path: &Path) -> Result<(), String> {
     let status = Command::new("open")
@@ -3063,7 +2700,7 @@ fn launcher_state_path() -> PathBuf {
     data_dir().join("launcher-state.json")
 }
 
-fn read_last_cwd(data: &Path) -> Option<PathBuf> {
+pub(crate) fn read_last_cwd(data: &Path) -> Option<PathBuf> {
     let state_path = data.join("terminal-state.json");
     let text = fs::read_to_string(state_path).ok()?;
     let key = "\"lastCwd\"";
@@ -3078,7 +2715,7 @@ fn recent_workspaces_path(data: &Path) -> PathBuf {
     data.join("recent-workspaces.txt")
 }
 
-fn read_recent_workspaces(data: &Path) -> Vec<PathBuf> {
+pub(crate) fn read_recent_workspaces(data: &Path) -> Vec<PathBuf> {
     let mut seen = HashSet::new();
     fs::read_to_string(recent_workspaces_path(data))
         .unwrap_or_default()
@@ -3131,7 +2768,7 @@ pub(crate) fn home_dir() -> PathBuf {
 /// Canonical data dir: `~/.t-0`.
 /// One-shot migrates `~/.mission-control` or `~/.grok-mission-control` when modern is missing.
 /// `MC_DATA_DIR` overrides, except when it still points at a legacy path after migrate.
-fn data_dir() -> PathBuf {
+pub(crate) fn data_dir() -> PathBuf {
     let home = home_dir();
     let modern = home.join(".t-0");
     let legacies = [
@@ -3186,7 +2823,7 @@ fn data_dir() -> PathBuf {
 
 /// Resolve workspace scan root.
 /// Order: settings (Finder picker) → MC_WORKSPACE_ROOT → GROK_TERMINAL_START_CWD → ~/dev → $HOME.
-fn workspace_root(settings: &SettingsFile) -> PathBuf {
+pub(crate) fn workspace_root(settings: &SettingsFile) -> PathBuf {
     if let Some(ref raw) = settings.workspace_root {
         let path = expand_path(raw);
         if path.is_dir() {
@@ -3469,22 +3106,3 @@ fn draw_help_overlay(frame: &mut Frame<'_>, _app: &App) {
     frame.render_widget(Paragraph::new(out), inner);
 }
 
-#[cfg(test)]
-mod tests {
-    use super::parse_porcelain_v2;
-
-    #[test]
-    fn porcelain_v2_branch_dirty_ahead() {
-        let clean = "# branch.oid abc\n# branch.head main\n# branch.upstream origin/main\n# branch.ab +3 -0\n";
-        assert_eq!(parse_porcelain_v2(clean), (Some("main".into()), false, 3));
-
-        let dirty = "# branch.oid abc\n# branch.head feat/x\n1 .M N... 100644 100644 100644 abc def src/main.rs\n";
-        assert_eq!(parse_porcelain_v2(dirty), (Some("feat/x".into()), true, 0));
-
-        let detached = "# branch.oid abc\n# branch.head (detached)\n";
-        assert_eq!(parse_porcelain_v2(detached), (None, false, 0));
-
-        // No upstream → no branch.ab line → ahead 0.
-        assert_eq!(parse_porcelain_v2("# branch.head main\n"), (Some("main".into()), false, 0));
-    }
-}
