@@ -587,12 +587,22 @@ impl LauncherState {
         Some(Launch {
             cwd: cwd.clone(),
             action: action.resolve_available(),
+            init: None,
         })
     }
 }
 
 struct Launch {
     action: Action,
+    cwd: PathBuf,
+    /// When set, run a harness-neutral headless init recipe (argv, no shell).
+    init: Option<InitCommand>,
+}
+
+/// Per-agent unattended init invocation.
+struct InitCommand {
+    program: String,
+    args: Vec<String>,
     cwd: PathBuf,
 }
 
@@ -608,8 +618,101 @@ struct UiHitboxes {
 enum Screen {
     Picker,
     Settings,
-    /// Finder-style directory browser for workspace root.
+    /// Finder-style directory browser for workspace root or new-project parent.
     FolderPicker,
+    /// Create folder/repo + optional headless agent init.
+    NewProject,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FolderPickerPurpose {
+    WorkspaceRoot,
+    NewProjectParent,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ProjectTemplate {
+    Agent,
+    Minimal,
+}
+
+impl ProjectTemplate {
+    fn label(self) -> &'static str {
+        match self {
+            ProjectTemplate::Agent => "agent",
+            ProjectTemplate::Minimal => "minimal",
+        }
+    }
+
+    fn cycle(self) -> Self {
+        match self {
+            ProjectTemplate::Agent => ProjectTemplate::Minimal,
+            ProjectTemplate::Minimal => ProjectTemplate::Agent,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NewProjectField {
+    Name,
+    Parent,
+    Template,
+    InitAgent,
+    Notes,
+    Create,
+}
+
+impl NewProjectField {
+    fn all() -> &'static [NewProjectField] {
+        &[
+            NewProjectField::Name,
+            NewProjectField::Parent,
+            NewProjectField::Template,
+            NewProjectField::InitAgent,
+            NewProjectField::Notes,
+            NewProjectField::Create,
+        ]
+    }
+
+    fn index(self) -> usize {
+        Self::all()
+            .iter()
+            .position(|f| *f == self)
+            .unwrap_or(0)
+    }
+
+    fn next(self) -> Self {
+        let all = Self::all();
+        all[(self.index() + 1) % all.len()]
+    }
+
+    fn prev(self) -> Self {
+        let all = Self::all();
+        all[(self.index() + all.len() - 1) % all.len()]
+    }
+}
+
+struct NewProjectForm {
+    name: String,
+    parent: PathBuf,
+    template: ProjectTemplate,
+    /// None = scaffold only (no agent available or user cycled to skip).
+    init_agent: Option<Action>,
+    notes: String,
+    field: NewProjectField,
+}
+
+impl NewProjectForm {
+    fn open(parent: PathBuf, default_agent: Option<Action>) -> Self {
+        Self {
+            name: String::new(),
+            parent,
+            template: ProjectTemplate::Agent,
+            init_agent: default_agent,
+            notes: String::new(),
+            field: NewProjectField::Name,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -805,6 +908,8 @@ struct App {
     settings_selected: usize,
     /// Finder-style browser when choosing workspace root.
     folder: FolderBrowser,
+    folder_purpose: FolderPickerPurpose,
+    new_project: NewProjectForm,
     /// Active or finishing CLI install.
     install: Option<InstallUi>,
     install_rx: Option<Receiver<InstallEvent>>,
@@ -821,6 +926,7 @@ impl App {
         let repos = discover_repos(&state);
         let visible_repos = (0..repos.len()).collect();
         let default_action = state.default_action();
+        let init_default = default_init_agent(&state.settings);
         let mut app = Self {
             state,
             repos,
@@ -834,7 +940,9 @@ impl App {
             status_set_at: None,
             screen: Screen::Picker,
             settings_selected: 0,
-            folder: FolderBrowser::open(root),
+            folder: FolderBrowser::open(root.clone()),
+            folder_purpose: FolderPickerPurpose::WorkspaceRoot,
+            new_project: NewProjectForm::open(root, init_default),
             install: None,
             install_rx: None,
             hover_missing: None,
@@ -847,6 +955,27 @@ impl App {
     fn open_folder_picker(&mut self) {
         let start = workspace_root(&self.state.settings);
         self.folder = FolderBrowser::open(start);
+        self.folder_purpose = FolderPickerPurpose::WorkspaceRoot;
+        self.screen = Screen::FolderPicker;
+        self.clear_status();
+    }
+
+    fn open_new_project(&mut self) {
+        let parent = workspace_root(&self.state.settings);
+        let init = default_init_agent(&self.state.settings);
+        self.new_project = NewProjectForm::open(parent, init);
+        self.screen = Screen::NewProject;
+        self.clear_status();
+    }
+
+    fn open_new_project_parent_picker(&mut self) {
+        let start = if self.new_project.parent.is_dir() {
+            self.new_project.parent.clone()
+        } else {
+            workspace_root(&self.state.settings)
+        };
+        self.folder = FolderBrowser::open(start);
+        self.folder_purpose = FolderPickerPurpose::NewProjectParent;
         self.screen = Screen::FolderPicker;
         self.clear_status();
     }
@@ -856,13 +985,117 @@ impl App {
             self.set_status("not a directory");
             return;
         }
-        self.state.settings.workspace_root = Some(path.display().to_string());
-        self.state.save();
+        match self.folder_purpose {
+            FolderPickerPurpose::WorkspaceRoot => {
+                self.state.settings.workspace_root = Some(path.display().to_string());
+                self.state.save();
+                self.repos = discover_repos(&self.state);
+                self.apply_filter();
+                self.screen = Screen::Settings;
+                self.settings_selected = 4; // workspace root row
+                self.set_status(format!("workspace root: {}", display_path(&path)));
+            }
+            FolderPickerPurpose::NewProjectParent => {
+                self.new_project.parent = path.clone();
+                self.screen = Screen::NewProject;
+                self.new_project.field = NewProjectField::Parent;
+                self.set_status(format!("parent: {}", display_path(&path)));
+            }
+        }
+    }
+
+    fn cycle_new_project_init_agent(&mut self, delta: i32) {
+        let agents = eligible_init_agents();
+        // Cycle: none (scaffold only) + available headless-capable agents.
+        if agents.is_empty() {
+            self.new_project.init_agent = None;
+            self.set_status("no headless init agents available");
+            return;
+        }
+        let current = self.new_project.init_agent;
+        let mut idx = 0usize;
+        if let Some(cur) = current {
+            if let Some(i) = agents.iter().position(|a| *a == cur) {
+                idx = i + 1; // offset by None slot
+            }
+        }
+        let len = agents.len() + 1;
+        let next = ((idx as i32 + delta).rem_euclid(len as i32)) as usize;
+        self.new_project.init_agent = if next == 0 {
+            None
+        } else {
+            Some(agents[next - 1])
+        };
+        let label = self
+            .new_project
+            .init_agent
+            .map(|a| a.label().to_string())
+            .unwrap_or_else(|| "none (scaffold only)".into());
+        self.set_status(format!("init agent: {label}"));
+    }
+
+    fn select_repo_by_path(&mut self, path: &Path) {
         self.repos = discover_repos(&self.state);
+        self.filter.clear();
         self.apply_filter();
-        self.screen = Screen::Settings;
-        self.settings_selected = 4; // workspace root row
-        self.set_status(format!("workspace root: {}", display_path(&path)));
+        if let Some((vis_i, _)) = self
+            .visible_repos
+            .iter()
+            .enumerate()
+            .find(|(_, ri)| self.repos.get(**ri).map(|r| r.path == path).unwrap_or(false))
+        {
+            self.selected_visible = vis_i;
+            self.keep_selected_visible();
+            self.apply_agent_memory();
+        }
+    }
+
+    /// Scaffold project; returns Launch for headless init, or None if scaffold-only.
+    fn try_create_project(&mut self) -> Result<Option<Launch>, String> {
+        let slug = slugify_project_name(&self.new_project.name)?;
+        let target = create_scaffold(
+            &self.new_project.parent,
+            &slug,
+            self.new_project.template,
+            &self.new_project.notes,
+        )?;
+        self.select_repo_by_path(&target);
+        self.screen = Screen::Picker;
+
+        let notes = self.new_project.notes.clone();
+        let template = self.new_project.template;
+        let init_agent = self.new_project.init_agent;
+
+        let Some(action) = init_agent else {
+            self.set_status(format!("created {} · scaffold only", display_path(&target)));
+            return Ok(None);
+        };
+
+        if !action.is_available() {
+            self.set_status(format!(
+                "created {} · {} not found — run init manually",
+                display_path(&target),
+                action.label()
+            ));
+            return Ok(None);
+        }
+
+        let prompt = compose_init_prompt(&InitPrompt {
+            project_name: slug.clone(),
+            template,
+            notes,
+        });
+        let cmd = build_init_command(action, &target, &prompt)?;
+        self.set_status(format!(
+            "created {} · running {} init…",
+            display_path(&target),
+            action.label()
+        ));
+        Ok(Some(Launch {
+            action,
+            cwd: target,
+            init: Some(cmd),
+        }))
     }
 
     fn install_busy(&self) -> bool {
@@ -1140,6 +1373,7 @@ impl App {
         Some(Launch {
             action: self.selected_action,
             cwd: repo.path.clone(),
+            init: None,
         })
     }
 
@@ -1661,6 +1895,11 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             Screen::Picker => draw(frame, &mut app),
             Screen::Settings => draw_settings(frame, &mut app),
             Screen::FolderPicker => draw_folder_picker(frame, &mut app),
+            // Popup over the picker — not a separate full-screen UI.
+            Screen::NewProject => {
+                draw(frame, &mut app);
+                draw_new_project_popup(frame, &mut app);
+            }
         })?;
 
         // Poll shorter while a status flash or install bar is active.
@@ -1678,7 +1917,10 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 if app.screen == Screen::FolderPicker {
                     match key.code {
                         KeyCode::Esc => {
-                            app.screen = Screen::Settings;
+                            app.screen = match app.folder_purpose {
+                                FolderPickerPurpose::WorkspaceRoot => Screen::Settings,
+                                FolderPickerPurpose::NewProjectParent => Screen::NewProject,
+                            };
                             app.clear_status();
                         }
                         KeyCode::Down | KeyCode::Char('j') => app.folder.select_next(),
@@ -1740,6 +1982,146 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                     continue;
                 }
 
+                if app.screen == Screen::NewProject {
+                    match key.code {
+                        KeyCode::Esc => {
+                            app.screen = Screen::Picker;
+                            app.clear_status();
+                        }
+                        KeyCode::Down | KeyCode::Char('j')
+                            if app.new_project.field != NewProjectField::Name
+                                && app.new_project.field != NewProjectField::Notes =>
+                        {
+                            app.new_project.field = app.new_project.field.next();
+                        }
+                        KeyCode::Up | KeyCode::Char('k')
+                            if app.new_project.field != NewProjectField::Name
+                                && app.new_project.field != NewProjectField::Notes =>
+                        {
+                            app.new_project.field = app.new_project.field.prev();
+                        }
+                        KeyCode::Down if app.new_project.field == NewProjectField::Name => {
+                            app.new_project.field = NewProjectField::Parent;
+                        }
+                        KeyCode::Down if app.new_project.field == NewProjectField::Notes => {
+                            app.new_project.field = NewProjectField::Create;
+                        }
+                        KeyCode::Up if app.new_project.field == NewProjectField::Parent => {
+                            app.new_project.field = NewProjectField::Name;
+                        }
+                        KeyCode::Up if app.new_project.field == NewProjectField::Create => {
+                            app.new_project.field = NewProjectField::Notes;
+                        }
+                        KeyCode::Tab => {
+                            app.new_project.field = app.new_project.field.next();
+                        }
+                        KeyCode::BackTab => {
+                            app.new_project.field = app.new_project.field.prev();
+                        }
+                        KeyCode::Left => match app.new_project.field {
+                            NewProjectField::Template => {
+                                app.new_project.template = app.new_project.template.cycle();
+                            }
+                            NewProjectField::InitAgent => {
+                                app.cycle_new_project_init_agent(-1);
+                            }
+                            _ => {}
+                        },
+                        KeyCode::Right => match app.new_project.field {
+                            NewProjectField::Template => {
+                                app.new_project.template = app.new_project.template.cycle();
+                            }
+                            NewProjectField::InitAgent => {
+                                app.cycle_new_project_init_agent(1);
+                            }
+                            NewProjectField::Parent => {
+                                app.open_new_project_parent_picker();
+                            }
+                            NewProjectField::Create => {
+                                match app.try_create_project() {
+                                    Ok(Some(launch)) => return Ok(Some(launch)),
+                                    Ok(None) => {}
+                                    Err(err) => app.set_status(err),
+                                }
+                            }
+                            _ => {}
+                        },
+                        KeyCode::Char(' ') => match app.new_project.field {
+                            NewProjectField::Name => {
+                                if app.new_project.name.len() < 64 {
+                                    app.new_project.name.push(' ');
+                                }
+                            }
+                            NewProjectField::Notes => {
+                                if app.new_project.notes.len() < 280 {
+                                    app.new_project.notes.push(' ');
+                                }
+                            }
+                            NewProjectField::Template => {
+                                app.new_project.template = app.new_project.template.cycle();
+                            }
+                            NewProjectField::InitAgent => {
+                                app.cycle_new_project_init_agent(1);
+                            }
+                            NewProjectField::Parent => {
+                                app.open_new_project_parent_picker();
+                            }
+                            NewProjectField::Create => {
+                                match app.try_create_project() {
+                                    Ok(Some(launch)) => return Ok(Some(launch)),
+                                    Ok(None) => {}
+                                    Err(err) => app.set_status(err),
+                                }
+                            }
+                        },
+                        KeyCode::Enter => match app.new_project.field {
+                            NewProjectField::Parent => {
+                                app.open_new_project_parent_picker();
+                            }
+                            NewProjectField::Template => {
+                                app.new_project.template = app.new_project.template.cycle();
+                            }
+                            NewProjectField::InitAgent => {
+                                app.cycle_new_project_init_agent(1);
+                            }
+                            NewProjectField::Create | NewProjectField::Name | NewProjectField::Notes => {
+                                match app.try_create_project() {
+                                    Ok(Some(launch)) => return Ok(Some(launch)),
+                                    Ok(None) => {}
+                                    Err(err) => app.set_status(err),
+                                }
+                            }
+                        },
+                        KeyCode::Backspace => match app.new_project.field {
+                            NewProjectField::Name => {
+                                app.new_project.name.pop();
+                            }
+                            NewProjectField::Notes => {
+                                app.new_project.notes.pop();
+                            }
+                            _ => {}
+                        },
+                        KeyCode::Char(c) if !c.is_control() => match app.new_project.field {
+                            NewProjectField::Name => {
+                                if app.new_project.name.len() < 64 {
+                                    app.new_project.name.push(c);
+                                }
+                            }
+                            NewProjectField::Notes => {
+                                if app.new_project.notes.len() < 280 {
+                                    app.new_project.notes.push(c);
+                                }
+                            }
+                            NewProjectField::Template if c == 'j' || c == 'k' => {
+                                // j/k already handled above for non-text fields; keep free
+                            }
+                            _ => {}
+                        },
+                        _ => {}
+                    }
+                    continue;
+                }
+
                 match key.code {
                 KeyCode::Esc => {
                     if app.filter.is_empty() {
@@ -1787,6 +2169,9 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                     app.screen = Screen::Settings;
                     app.settings_selected = 0;
                     app.clear_status();
+                }
+                KeyCode::Char('n') | KeyCode::Char('N') if app.filter.is_empty() => {
+                    app.open_new_project();
                 }
                 KeyCode::Char('e') | KeyCode::Char('E') if app.filter.is_empty() => {
                     app.run_side_action(SideAction::Editor);
@@ -1934,7 +2319,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         Line::from(Span::styled(status.clone(), Style::default().fg(ACCENT)))
     } else {
         Line::from(Span::styled(
-            "e editor · f finder · c copy · g github · hover dim app to install",
+            "n new · e editor · f finder · c copy · g github · hover dim app to install",
             Style::default().fg(t.dim),
         ))
     };
@@ -2179,8 +2564,12 @@ fn draw_folder_picker(frame: &mut Frame<'_>, app: &mut App) {
     app.panel_area = area;
 
     let title_path = display_path(app.folder.current_path());
+    let picker_title = match app.folder_purpose {
+        FolderPickerPurpose::WorkspaceRoot => " Choose workspace root ",
+        FolderPickerPurpose::NewProjectParent => " Choose project parent ",
+    };
     let block = Block::default()
-        .title(format!(" Choose workspace root "))
+        .title(picker_title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(t.border))
         .style(Style::default().bg(t.bg).fg(t.text));
@@ -3057,6 +3446,42 @@ fn run_child_app(launch: Launch) -> io::Result<()> {
     let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     record_recent_workspace(&launch.cwd);
 
+    // Harness-neutral headless init: argv only, no shell interpolation of user notes.
+    if let Some(init) = launch.init {
+        if env::var("MC_INIT_DRY_RUN").ok().as_deref() == Some("1") {
+            eprintln!(
+                "[{APP_NAME} init dry-run] {} {:?} cwd={}",
+                init.program,
+                init.args,
+                init.cwd.display()
+            );
+            eprintln!("Press enter to return to {APP_NAME}...");
+            let mut input = String::new();
+            let _ = io::stdin().read_line(&mut input);
+            return Ok(());
+        }
+        eprintln!(
+            "[{APP_NAME}] headless init via {} in {}",
+            launch.action.label(),
+            init.cwd.display()
+        );
+        let status = Command::new(&init.program)
+            .args(&init.args)
+            .current_dir(&init.cwd)
+            .status()?;
+        if !status.success() {
+            eprintln!(
+                "[{} init exited with {}]",
+                launch.action.label(),
+                status
+            );
+            eprintln!("Press enter to return to {APP_NAME}...");
+            let mut input = String::new();
+            let _ = io::stdin().read_line(&mut input);
+        }
+        return Ok(());
+    }
+
     let Some(command) = launch.action.resolve_command() else {
         return replace_with_shell(launch);
     };
@@ -3091,4 +3516,433 @@ fn run_child_app(launch: Launch) -> io::Result<()> {
     }
 
     Ok(())
+}
+
+// ── New project: scaffold + harness-neutral headless init ─────────────────
+
+struct InitPrompt {
+    project_name: String,
+    template: ProjectTemplate,
+    notes: String,
+}
+
+fn eligible_init_agents() -> Vec<Action> {
+    Action::all()
+        .iter()
+        .copied()
+        .filter(|a| *a != Action::Shell && a.is_available())
+        .collect()
+}
+
+fn default_init_agent(settings: &SettingsFile) -> Option<Action> {
+    let eligible = eligible_init_agents();
+    if eligible.is_empty() {
+        return None;
+    }
+    if let Some(id) = settings.default_agent.as_deref() {
+        if let Some(action) = Action::from_id(id) {
+            if eligible.iter().any(|a| *a == action) {
+                return Some(action);
+            }
+        }
+    }
+    if eligible.iter().any(|a| *a == Action::Grok) {
+        return Some(Action::Grok);
+    }
+    Some(eligible[0])
+}
+
+fn resolve_program(action: Action) -> Option<(String, Vec<String>)> {
+    let cmd = action.resolve_command()?;
+    let mut parts = cmd.split_whitespace();
+    let program = parts.next()?.to_string();
+    let prefix: Vec<String> = parts.map(|s| s.to_string()).collect();
+    Some((program, prefix))
+}
+
+fn compose_init_prompt(p: &InitPrompt) -> String {
+    let notes = p.notes.trim();
+    let notes_block = if notes.is_empty() {
+        "(none — sensible defaults for a new local project)".to_string()
+    } else {
+        notes.to_string()
+    };
+    format!(
+        r#"Bootstrap this brand-new local git repository for agent-assisted development.
+
+Follow the repository /init bootstrap workflow if you have it (AGENTS.md, docs/INDEX.md,
+versioned git hooks, stack detection, quality scripts, verify). If you do not have an
+/init skill, still produce an equivalent professional starter: AGENTS.md, docs/INDEX.md,
+README, .gitignore, and versioned hooks where appropriate.
+
+Rules:
+- Work only inside this repository working directory.
+- Merge with existing starter files; do not delete them blindly.
+- Do not create a GitHub remote or push unless asked.
+- Prefer production-complete defaults; fail loud; no placeholder stubs.
+
+Project name: {name}
+Scaffold template: {template}
+
+User notes about the project:
+{notes}
+
+When finished, summarize files created/changed and any verification you ran."#,
+        name = p.project_name,
+        template = p.template.label(),
+        notes = notes_block,
+    )
+}
+
+/// Build argv for unattended init. Prompt is a single argv element (never shell-interpolated).
+fn build_init_command(action: Action, cwd: &Path, prompt: &str) -> Result<InitCommand, String> {
+    if action == Action::Shell {
+        return Err("shell cannot run headless init".into());
+    }
+    if !action.is_available() {
+        return Err(format!("{} not available", action.label()));
+    }
+    let (program, mut args) = resolve_program(action)
+        .ok_or_else(|| format!("no command for {}", action.label()))?;
+    let cwd_str = cwd.display().to_string();
+
+    match action {
+        Action::Grok => {
+            args.extend([
+                "--cwd".into(),
+                cwd_str,
+                "--always-approve".into(),
+                "--permission-mode".into(),
+                "acceptEdits".into(),
+                prompt.to_string(),
+            ]);
+        }
+        Action::Codex => {
+            args.extend([
+                "exec".into(),
+                "-C".into(),
+                cwd_str,
+                "--sandbox".into(),
+                "workspace-write".into(),
+                prompt.to_string(),
+            ]);
+        }
+        Action::Claude => {
+            args.extend([
+                "-p".into(),
+                prompt.to_string(),
+                "--dangerously-skip-permissions".into(),
+            ]);
+        }
+        Action::Cursor => {
+            // Best-effort: community reports of -p hangs on some versions.
+            args.extend([
+                "-p".into(),
+                "--force".into(),
+                "--trust".into(),
+                "--workspace".into(),
+                cwd_str,
+                prompt.to_string(),
+            ]);
+        }
+        Action::Pi => {
+            args.extend(["-p".into(), "--approve".into(), prompt.to_string()]);
+        }
+        Action::Amp => {
+            args.extend(["-x".into(), prompt.to_string()]);
+        }
+        Action::Devin => {
+            args.extend([
+                "-p".into(),
+                prompt.to_string(),
+                "--permission-mode".into(),
+                "accept-edits".into(),
+            ]);
+        }
+        Action::Droid => {
+            args.extend([
+                "exec".into(),
+                "--cwd".into(),
+                cwd_str,
+                "--auto".into(),
+                "high".into(),
+                prompt.to_string(),
+            ]);
+        }
+        Action::Shell => unreachable!(),
+    }
+
+    Ok(InitCommand {
+        program,
+        args,
+        cwd: cwd.to_path_buf(),
+    })
+}
+
+fn slugify_project_name(raw: &str) -> Result<String, String> {
+    let s = raw.trim().to_lowercase();
+    let mut out = String::new();
+    let mut prev_dash = false;
+    for c in s.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c);
+            prev_dash = false;
+        } else if matches!(c, ' ' | '_' | '-' | '.') {
+            if !out.is_empty() && !prev_dash {
+                out.push('-');
+                prev_dash = true;
+            }
+        }
+    }
+    while out.ends_with('-') {
+        out.pop();
+    }
+    if out.is_empty() {
+        return Err("name required".into());
+    }
+    if out == "." || out == ".." || out.contains('/') {
+        return Err("invalid name".into());
+    }
+    Ok(out)
+}
+
+const SCAFFOLD_GITIGNORE: &str = "\
+.DS_Store
+.env
+.env.*
+!.env.example
+*.log
+.idea/
+.vscode/
+node_modules/
+target/
+dist/
+build/
+";
+
+fn create_scaffold(
+    parent: &Path,
+    slug: &str,
+    template: ProjectTemplate,
+    notes: &str,
+) -> Result<PathBuf, String> {
+    if !command_available("git") {
+        return Err("git not found on PATH".into());
+    }
+    if !parent.is_dir() {
+        return Err("parent is not a directory".into());
+    }
+    let target = parent.join(slug);
+    if target.exists() {
+        return Err(format!("{} already exists", display_path(&target)));
+    }
+    fs::create_dir_all(&target).map_err(|e| format!("mkdir: {e}"))?;
+
+    let notes_trim = notes.trim();
+    let notes_section = if notes_trim.is_empty() {
+        String::new()
+    } else {
+        format!("\n{notes_trim}\n")
+    };
+
+    let readme = match template {
+        ProjectTemplate::Minimal => format!(
+            "# {slug}\n\nScaffolded by T-0.{notes_section}"
+        ),
+        ProjectTemplate::Agent => format!(
+            "# {slug}\n\nScaffolded by T-0. Thin agent-ready starter — your init agent will expand this.\n{notes_section}"
+        ),
+    };
+    fs::write(target.join("README.md"), readme).map_err(|e| format!("README: {e}"))?;
+    fs::write(target.join(".gitignore"), SCAFFOLD_GITIGNORE)
+        .map_err(|e| format!(".gitignore: {e}"))?;
+
+    if template == ProjectTemplate::Agent {
+        fs::create_dir_all(target.join("docs")).map_err(|e| format!("docs/: {e}"))?;
+        let agents = format!(
+            r#"# AGENTS.md
+
+Start with **[docs/INDEX.md](./docs/INDEX.md)**.
+
+## Project
+
+- **Name:** {slug}
+- **Scaffold:** T-0 agent template (run agent init / `/init` to complete bootstrap)
+
+## Code principles
+
+1. Production-complete or hard-fail
+2. Fail loud
+3. Small, focused diffs
+4. Evidence before claims
+"#
+        );
+        fs::write(target.join("AGENTS.md"), agents).map_err(|e| format!("AGENTS.md: {e}"))?;
+        let index = format!(
+            r#"# docs/INDEX.md
+
+Recovery map for **{slug}**.
+
+| Doc | Why |
+|-----|-----|
+| [../README.md](../README.md) | Project overview |
+| [../AGENTS.md](../AGENTS.md) | Agent instructions |
+
+Add architecture and workflow links as the project grows.
+"#
+        );
+        fs::write(target.join("docs/INDEX.md"), index)
+            .map_err(|e| format!("docs/INDEX.md: {e}"))?;
+    }
+
+    let path_str = target.display().to_string();
+    let init = Command::new("git")
+        .args(["-C", &path_str, "init", "-b", "main"])
+        .status()
+        .map_err(|e| format!("git init: {e}"))?;
+    if !init.success() {
+        let _ = fs::remove_dir_all(&target);
+        return Err("git init failed".into());
+    }
+    let _ = Command::new("git")
+        .args(["-C", &path_str, "add", "-A"])
+        .status();
+    // Commit may fail without user.email — scaffold still succeeds.
+    let _ = Command::new("git")
+        .args(["-C", &path_str, "commit", "-m", "chore: scaffold from t0"])
+        .status();
+
+    Ok(target)
+}
+
+/// Modal popup over the picker (not a full-screen replacement).
+fn draw_new_project_popup(frame: &mut Frame<'_>, app: &mut App) {
+    let t = app.theme();
+    let area = new_project_popup_rect(frame.area());
+    app.panel_area = area;
+
+    let block = Block::default()
+        .title(format!(" {APP_NAME} · New project "))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ACCENT))
+        .style(Style::default().bg(t.bg).fg(t.text));
+    frame.render_widget(block, area);
+
+    let inner = inset(area, 2, 1);
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1), // help
+            Constraint::Min(8),    // fields
+            Constraint::Length(1), // status
+        ])
+        .split(inner);
+
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            "tab fields · ←/→ cycle · enter create+init · esc close",
+            Style::default().fg(t.dim),
+        ))),
+        chunks[0],
+    );
+
+    let name_display = if app.new_project.name.is_empty() {
+        "…".to_string()
+    } else {
+        app.new_project.name.clone()
+    };
+    let parent_display = display_path(&app.new_project.parent);
+    let init_label = app
+        .new_project
+        .init_agent
+        .map(|a| a.label().to_string())
+        .unwrap_or_else(|| "none (scaffold only)".into());
+    let notes_display = if app.new_project.notes.is_empty() {
+        "optional — what is this project?".to_string()
+    } else {
+        app.new_project.notes.clone()
+    };
+
+    let rows: [(&str, String, NewProjectField); 6] = [
+        ("Name", name_display, NewProjectField::Name),
+        (
+            "Parent",
+            format!("{parent_display}  ↵"),
+            NewProjectField::Parent,
+        ),
+        (
+            "Template",
+            app.new_project.template.label().to_string(),
+            NewProjectField::Template,
+        ),
+        ("Init agent", init_label, NewProjectField::InitAgent),
+        ("Notes", notes_display, NewProjectField::Notes),
+        ("Create", "scaffold + headless init".into(), NewProjectField::Create),
+    ];
+
+    let mut lines = Vec::new();
+    for (label, value, field) in rows {
+        let selected = app.new_project.field == field;
+        let style = if selected {
+            Style::default()
+                .fg(ACCENT_ON)
+                .bg(ACCENT)
+                .add_modifier(Modifier::BOLD)
+        } else if field == NewProjectField::Notes && app.new_project.notes.is_empty() {
+            Style::default().fg(t.dim)
+        } else {
+            Style::default().fg(t.soft)
+        };
+        let marker = if selected { ">" } else { " " };
+        let cursor = if selected
+            && matches!(field, NewProjectField::Name | NewProjectField::Notes)
+            && !app.new_project.notes.is_empty()
+            || (selected && field == NewProjectField::Name && !app.new_project.name.is_empty())
+        {
+            "▌"
+        } else if selected && matches!(field, NewProjectField::Name | NewProjectField::Notes) {
+            "▌"
+        } else {
+            ""
+        };
+        // Show cursor on empty name/notes when selected
+        let value_out = if selected && matches!(field, NewProjectField::Name | NewProjectField::Notes)
+        {
+            if field == NewProjectField::Name && app.new_project.name.is_empty() {
+                format!("▌{value}")
+            } else if field == NewProjectField::Notes && app.new_project.notes.is_empty() {
+                format!("▌{value}")
+            } else {
+                format!("{value}{cursor}")
+            }
+        } else {
+            value
+        };
+        lines.push(Line::from(Span::styled(
+            format!("{marker} {label:<11} {value_out}"),
+            style,
+        )));
+    }
+    frame.render_widget(Paragraph::new(lines), chunks[1]);
+
+    if let Some(status) = &app.status {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                status.clone(),
+                Style::default().fg(ACCENT),
+            ))),
+            chunks[2],
+        );
+    }
+}
+
+fn new_project_popup_rect(screen: Rect) -> Rect {
+    let width = screen.width.min(72).max(40);
+    let height = screen.height.saturating_sub(4).min(16).max(12);
+    Rect {
+        x: screen.x + screen.width.saturating_sub(width) / 2,
+        y: screen.y + screen.height.saturating_sub(height) / 2,
+        width,
+        height,
+    }
 }

@@ -16,6 +16,8 @@ Also available as a skill: [`.agents/skills/install-t0/SKILL.md`](../.agents/ski
 
 **Local shell only.** Default bind is localhost. Security notes: [SECURITY.md](../SECURITY.md).
 
+**New project (`n` in launcher):** scaffolds a git folder under the workspace root, then runs a **harness-neutral headless init** via the chosen agent (Grok/Codex/Claude/Pi/…). T-0 does not reimplement `/init` — it passes a shared bootstrap prompt; each CLI has an argv recipe.
+
 ## Install (do this in order)
 
 ### 1. Prerequisites

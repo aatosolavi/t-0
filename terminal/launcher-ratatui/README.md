@@ -54,6 +54,7 @@ Marketing screenshots: `MC_DEMO=1 t0` (or `MC_MOCK=1`) uses fake public-looking 
 - `c` (filter empty): copy path
 - `g` (filter empty): open GitHub / origin remote
 - `s` (filter empty): settings (splash, default agent, UI theme, workspace root)
+- `n` (filter empty): **new project** popup — name, parent, template, init agent, optional notes; scaffolds a git repo then runs **headless init** via the chosen agent (harness-neutral recipes for Grok, Codex, Claude, Pi, Amp, Devin, Droid, Cursor)
 - rows show git branch (`*` dirty, `↑N` ahead) and remembered agent
 - mouse wheel: move through workspaces
 - click an app name: choose app
