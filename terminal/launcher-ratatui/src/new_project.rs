@@ -9,7 +9,7 @@ use std::{
 
 use unicode_width::UnicodeWidthChar;
 
-pub const NOTES_VIEWPORT_ROWS: u16 = 3;
+pub const NOTES_VIEWPORT_ROWS: u16 = 4;
 pub const NOTES_MAX_CHARS: usize = 2000;
 pub const NAME_MAX_CHARS: usize = 64;
 
@@ -637,13 +637,19 @@ mod tests {
     fn notes_scroll_and_viewport() {
         let notes = "a\nb\nc\nd\ne";
         assert_eq!(notes_lines(notes).len(), 5);
-        assert_eq!(auto_scroll_notes_to_end(notes), 2); // 5 - 3
-        assert_eq!(clamp_notes_scroll(notes, 99), 2);
+        // Viewport is NOTES_VIEWPORT_ROWS (4); max scroll = 5 - 4 = 1.
+        assert_eq!(auto_scroll_notes_to_end(notes), 1);
+        assert_eq!(clamp_notes_scroll(notes, 99), 1);
         assert_eq!(clamp_notes_scroll(notes, 0), 0);
-        let vp = notes_viewport(notes, 2);
+        let vp = notes_viewport(notes, 1);
         assert_eq!(
             vp,
-            vec!["c".to_string(), "d".to_string(), "e".to_string()]
+            vec![
+                "b".to_string(),
+                "c".to_string(),
+                "d".to_string(),
+                "e".to_string()
+            ]
         );
         assert_eq!(notes_lines("").len(), 1);
         assert_eq!(auto_scroll_notes_to_end(""), 0);
