@@ -1,4 +1,5 @@
 mod new_project;
+mod new_project_input;
 mod new_project_ui;
 
 use std::{
@@ -16,7 +17,7 @@ use std::{
 use crossterm::{
     cursor::Show,
     event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind,
         MouseButton, MouseEventKind,
     },
     execute,
@@ -24,11 +25,9 @@ use crossterm::{
 };
 
 use new_project::{
-    auto_scroll_notes_to_end, build_init_command, clamp_notes_scroll, compose_init_prompt,
-    create_scaffold, delete_current_line, delete_last_char, delete_last_word, display_width,
-    ellipsize_end, ellipsize_front, env_flag_on, pad_line, sliding_tail,
-    slugify_project_name, InitAgentKind, InitCommand, InitPrompt, ProjectTemplate, NAME_MAX_CHARS,
-    NOTES_MAX_CHARS, NOTES_VIEWPORT_ROWS,
+    build_init_command, compose_init_prompt, create_scaffold, display_width, ellipsize_end,
+    ellipsize_front, env_flag_on, pad_line, sliding_tail, slugify_project_name, InitAgentKind,
+    InitCommand, InitPrompt, ProjectTemplate,
 };
 use ratatui::{
     backend::CrosstermBackend,
@@ -690,14 +689,14 @@ enum FolderPickerPurpose {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum TextDelete {
+pub(crate) enum TextDelete {
     Char,
     Word,
     Line,
 }
 
 /// How long to wait after Esc for a Meta-prefixed key (Option+Backspace → Esc, Backspace).
-const ESC_META_WINDOW: Duration = Duration::from_millis(120);
+pub(crate) const ESC_META_WINDOW: Duration = Duration::from_millis(120);
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum NewProjectField {
@@ -728,12 +727,12 @@ impl NewProjectField {
             .unwrap_or(0)
     }
 
-    fn next(self) -> Self {
+    pub(crate) fn next(self) -> Self {
         let all = Self::all();
         all[(self.index() + 1) % all.len()]
     }
 
-    fn prev(self) -> Self {
+    pub(crate) fn prev(self) -> Self {
         let all = Self::all();
         all[(self.index() + all.len() - 1) % all.len()]
     }
@@ -1115,28 +1114,22 @@ impl App {
         }
     }
 
-    /// Apply word/line/char delete to Name or Notes (append-mode).
-    fn new_project_text_delete(&mut self, kind: TextDelete) {
-        if !matches!(
-            self.new_project.field,
-            NewProjectField::Name | NewProjectField::Notes
-        ) {
-            return;
-        }
-        let is_notes = self.new_project.field == NewProjectField::Notes;
-        let s = if is_notes {
-            &mut self.new_project.notes
-        } else {
-            &mut self.new_project.name
-        };
-        match kind {
-            TextDelete::Char => delete_last_char(s),
-            TextDelete::Word => delete_last_word(s),
-            TextDelete::Line => delete_current_line(s),
-        }
-        if is_notes {
-            self.new_project.notes_scroll =
-                clamp_notes_scroll(&self.new_project.notes, self.new_project.notes_scroll);
+    fn apply_np_action(&mut self, action: new_project_input::NpAction) {
+        use new_project_input::NpAction;
+        match action {
+            NpAction::None => {}
+            NpAction::Close => {
+                self.esc_meta_armed_at = None;
+                self.screen = Screen::Picker;
+                self.clear_status();
+            }
+            NpAction::OpenParentPicker => self.open_new_project_parent_picker(),
+            NpAction::Create => {
+                if let Err(err) = self.try_create_project() {
+                    self.set_status(err);
+                }
+            }
+            NpAction::CycleInitAgent(delta) => self.cycle_new_project_init_agent(delta),
         }
     }
 
@@ -2520,267 +2513,12 @@ fn run_app(
                 }
 
                 if app.screen == Screen::NewProject {
-                    let mods = key.modifiers;
-                    let ctrl = mods.contains(KeyModifiers::CONTROL);
-                    let alt = mods.contains(KeyModifiers::ALT);
-                    let super_key = mods.contains(KeyModifiers::SUPER);
-                    // Char insert only for plain typing (or Shift for uppercase) —
-                    // Ctrl/Alt/Super chords must never type into Name/Notes.
-                    let plain_or_shift =
-                        mods.is_empty() || mods == KeyModifiers::SHIFT;
-
-                    // Option+Backspace often arrives as Esc then Backspace (Meta prefix).
-                    if let Some(armed) = app.esc_meta_armed_at.take() {
-                        if armed.elapsed() < ESC_META_WINDOW {
-                            match key.code {
-                                KeyCode::Backspace | KeyCode::Delete => {
-                                    app.new_project_text_delete(TextDelete::Word);
-                                    continue;
-                                }
-                                KeyCode::Char(c) if c == '\u{7f}' || c == '\u{08}' => {
-                                    app.new_project_text_delete(TextDelete::Word);
-                                    continue;
-                                }
-                                KeyCode::Esc => {
-                                    app.screen = Screen::Picker;
-                                    app.clear_status();
-                                    continue;
-                                }
-                                _ => {
-                                    // Esc then unrelated key → close (Esc alone intent).
-                                    app.screen = Screen::Picker;
-                                    app.clear_status();
-                                    continue;
-                                }
-                            }
-                        }
-                        // Timed out before this key: Esc alone closes, drop this key.
-                        app.screen = Screen::Picker;
-                        app.clear_status();
-                        continue;
-                    }
-
-                    // Ctrl+Enter always creates from any field.
-                    if matches!(key.code, KeyCode::Enter) && ctrl {
-                        if let Err(err) = app.try_create_project() {
-                            app.set_status(err);
-                        }
-                        continue;
-                    }
-
-                    // Ctrl+U / Ctrl+W / Ctrl+Backspace on Name/Notes.
-                    if ctrl {
-                        if let KeyCode::Char(c) = key.code {
-                            let lower = c.to_ascii_lowercase();
-                            if matches!(
-                                app.new_project.field,
-                                NewProjectField::Name | NewProjectField::Notes
-                            ) && (lower == 'u' || lower == 'w')
-                            {
-                                if lower == 'u' {
-                                    app.new_project_text_delete(TextDelete::Line);
-                                } else {
-                                    app.new_project_text_delete(TextDelete::Word);
-                                }
-                                continue;
-                            }
-                        }
-                        if matches!(key.code, KeyCode::Backspace | KeyCode::Delete)
-                            && matches!(
-                                app.new_project.field,
-                                NewProjectField::Name | NewProjectField::Notes
-                            )
-                        {
-                            app.new_project_text_delete(TextDelete::Word);
-                            continue;
-                        }
-                    }
-
-                    match key.code {
-                        KeyCode::Esc => {
-                            // While typing, delay Esc: follow-up may be Meta-Backspace.
-                            if matches!(
-                                app.new_project.field,
-                                NewProjectField::Name | NewProjectField::Notes
-                            ) && mods.is_empty()
-                            {
-                                app.esc_meta_armed_at = Some(Instant::now());
-                            } else {
-                                app.screen = Screen::Picker;
-                                app.clear_status();
-                            }
-                        }
-                        KeyCode::Down => {
-                            if app.new_project.field == NewProjectField::Notes {
-                                let n = new_project::notes_lines(&app.new_project.notes).len();
-                                let max_scroll =
-                                    n.saturating_sub(NOTES_VIEWPORT_ROWS as usize) as u16;
-                                if app.new_project.notes_scroll < max_scroll {
-                                    app.new_project.notes_scroll += 1;
-                                } else {
-                                    app.new_project.field = app.new_project.field.next();
-                                }
-                            } else {
-                                app.new_project.field = app.new_project.field.next();
-                            }
-                        }
-                        KeyCode::Up => {
-                            if app.new_project.field == NewProjectField::Notes {
-                                // Shift+Up always leaves Notes (no scroll gauntlet).
-                                if key.modifiers.contains(KeyModifiers::SHIFT) {
-                                    app.new_project.field = app.new_project.field.prev();
-                                } else if app.new_project.notes_scroll > 0 {
-                                    app.new_project.notes_scroll -= 1;
-                                } else {
-                                    app.new_project.field = app.new_project.field.prev();
-                                }
-                            } else {
-                                app.new_project.field = app.new_project.field.prev();
-                            }
-                        }
-                        KeyCode::Char('j')
-                            if plain_or_shift
-                                && !matches!(
-                                    app.new_project.field,
-                                    NewProjectField::Name | NewProjectField::Notes
-                                ) =>
-                        {
-                            app.new_project.field = app.new_project.field.next();
-                        }
-                        KeyCode::Char('k')
-                            if plain_or_shift
-                                && !matches!(
-                                    app.new_project.field,
-                                    NewProjectField::Name | NewProjectField::Notes
-                                ) =>
-                        {
-                            app.new_project.field = app.new_project.field.prev();
-                        }
-                        KeyCode::Tab => {
-                            app.new_project.field = app.new_project.field.next();
-                        }
-                        KeyCode::BackTab => {
-                            app.new_project.field = app.new_project.field.prev();
-                        }
-                        KeyCode::Left => match app.new_project.field {
-                            NewProjectField::Template => {
-                                app.new_project.template = app.new_project.template.cycle();
-                            }
-                            NewProjectField::InitAgent => {
-                                app.cycle_new_project_init_agent(-1);
-                            }
-                            _ => {}
-                        },
-                        KeyCode::Right => match app.new_project.field {
-                            NewProjectField::Template => {
-                                app.new_project.template = app.new_project.template.cycle();
-                            }
-                            NewProjectField::InitAgent => {
-                                app.cycle_new_project_init_agent(1);
-                            }
-                            NewProjectField::Parent => {
-                                app.open_new_project_parent_picker();
-                            }
-                            // Create only via Enter / Space / Ctrl+Enter — not Right.
-                            _ => {}
-                        },
-                        KeyCode::Char(' ') if plain_or_shift => match app.new_project.field {
-                            NewProjectField::Name => {
-                                if app.new_project.name.chars().count() < NAME_MAX_CHARS {
-                                    app.new_project.name.push(' ');
-                                }
-                            }
-                            NewProjectField::Notes => {
-                                if app.new_project.notes.chars().count() < NOTES_MAX_CHARS {
-                                    app.new_project.notes.push(' ');
-                                    app.new_project.notes_scroll =
-                                        auto_scroll_notes_to_end(&app.new_project.notes);
-                                }
-                            }
-                            NewProjectField::Template => {
-                                app.new_project.template = app.new_project.template.cycle();
-                            }
-                            NewProjectField::InitAgent => {
-                                app.cycle_new_project_init_agent(1);
-                            }
-                            NewProjectField::Parent => {
-                                app.open_new_project_parent_picker();
-                            }
-                            NewProjectField::Create => {
-                                if let Err(err) = app.try_create_project() {
-                                    app.set_status(err);
-                                }
-                            }
-                        },
-                        KeyCode::Enter => {
-                            // Shift+Enter in Notes = newline (chat-style). Plain Enter advances
-                            // or creates from Create. Ctrl+Enter still creates from any field.
-                            let shift = mods.contains(KeyModifiers::SHIFT);
-                            if shift
-                                && app.new_project.field == NewProjectField::Notes
-                                && app.new_project.notes.chars().count() < NOTES_MAX_CHARS
-                            {
-                                app.new_project.notes.push('\n');
-                                app.new_project.notes_scroll =
-                                    auto_scroll_notes_to_end(&app.new_project.notes);
-                                continue;
-                            }
-                            match app.new_project.field {
-                                NewProjectField::Parent => {
-                                    app.open_new_project_parent_picker();
-                                }
-                                NewProjectField::Template => {
-                                    app.new_project.template = app.new_project.template.cycle();
-                                }
-                                NewProjectField::InitAgent => {
-                                    app.cycle_new_project_init_agent(1);
-                                }
-                                NewProjectField::Name | NewProjectField::Notes => {
-                                    // Enter advances to next field.
-                                    app.new_project.field = app.new_project.field.next();
-                                }
-                                NewProjectField::Create => {
-                                    if let Err(err) = app.try_create_project() {
-                                        app.set_status(err);
-                                    }
-                                }
-                            }
-                        },
-                        KeyCode::Backspace | KeyCode::Delete => {
-                            if matches!(
-                                app.new_project.field,
-                                NewProjectField::Name | NewProjectField::Notes
-                            ) {
-                                // Alt/Option or Super+Backspace → word / line.
-                                // Plain Backspace → one char.
-                                if super_key {
-                                    app.new_project_text_delete(TextDelete::Line);
-                                } else if alt {
-                                    app.new_project_text_delete(TextDelete::Word);
-                                } else {
-                                    app.new_project_text_delete(TextDelete::Char);
-                                }
-                            }
-                        }
-                        KeyCode::Char(c) if !c.is_control() && plain_or_shift => {
-                            match app.new_project.field {
-                                NewProjectField::Name => {
-                                    if app.new_project.name.chars().count() < NAME_MAX_CHARS {
-                                        app.new_project.name.push(c);
-                                    }
-                                }
-                                NewProjectField::Notes => {
-                                    if app.new_project.notes.chars().count() < NOTES_MAX_CHARS {
-                                        app.new_project.notes.push(c);
-                                        app.new_project.notes_scroll =
-                                            auto_scroll_notes_to_end(&app.new_project.notes);
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-                        _ => {}
-                    }
+                    let action = new_project_input::handle_key(
+                        &mut app.new_project,
+                        key,
+                        &mut app.esc_meta_armed_at,
+                    );
+                    app.apply_np_action(action);
                     continue;
                 }
 
@@ -2862,26 +2600,14 @@ fn run_app(
                 _ => {}
             }
             }
-            Event::Mouse(mouse) if app.screen == Screen::NewProject => match mouse.kind {
-                MouseEventKind::ScrollDown => {
-                    app.new_project.field = app.new_project.field.next();
-                }
-                MouseEventKind::ScrollUp => {
-                    app.new_project.field = app.new_project.field.prev();
-                }
-                MouseEventKind::Down(MouseButton::Left) => {
-                    let panel = app.panel_area;
-                    if panel.width > 0 && panel.height > 0 {
-                        let lay = new_project_ui::layout(panel);
-                        if let Some(field) =
-                            new_project_ui::hit_test(&lay, mouse.row, mouse.column)
-                        {
-                            app.new_project.field = field;
-                        }
-                    }
-                }
-                _ => {}
-            },
+            Event::Mouse(mouse) if app.screen == Screen::NewProject => {
+                let action = new_project_input::handle_mouse(
+                    &mut app.new_project,
+                    mouse,
+                    app.panel_area,
+                );
+                app.apply_np_action(action);
+            }
             Event::Mouse(mouse) if app.screen == Screen::FolderPicker => match mouse.kind {
                 MouseEventKind::ScrollDown => app.folder.select_next(),
                 MouseEventKind::ScrollUp => app.folder.select_prev(),
@@ -2999,17 +2725,9 @@ fn run_app(
             _ => {}
                 }
             }
-        } else {
-            // Idle tick: Esc alone (no follow-up key) closes the New Project popup.
-            if app.screen == Screen::NewProject {
-                if let Some(armed) = app.esc_meta_armed_at {
-                    if armed.elapsed() >= ESC_META_WINDOW {
-                        app.esc_meta_armed_at = None;
-                        app.screen = Screen::Picker;
-                        app.clear_status();
-                    }
-                }
-            }
+        } else if app.screen == Screen::NewProject {
+            let action = new_project_input::tick_esc_meta(&mut app.esc_meta_armed_at);
+            app.apply_np_action(action);
         }
 
         draw_app_frame(terminal, app)?;
