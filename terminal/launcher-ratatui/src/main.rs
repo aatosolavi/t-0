@@ -24,9 +24,10 @@ use crossterm::{
 
 use new_project::{
     auto_scroll_notes_to_end, build_init_command, clamp_notes_scroll, compose_init_prompt,
-    create_scaffold, delete_current_line, delete_last_char, delete_last_word, env_flag_on,
-    notes_viewport, pad_line, slugify_project_name, InitAgentKind, InitCommand, InitPrompt,
-    ProjectTemplate, NAME_MAX_CHARS, NOTES_MAX_CHARS, NOTES_VIEWPORT_ROWS,
+    create_scaffold, delete_current_line, delete_last_char, delete_last_word, display_width,
+    env_flag_on, front_ellipsize, notes_viewport, pad_line, sliding_tail, slugify_project_name,
+    InitAgentKind, InitCommand, InitPrompt, ProjectTemplate, NAME_MAX_CHARS, NOTES_MAX_CHARS,
+    NOTES_VIEWPORT_ROWS,
 };
 use ratatui::{
     backend::CrosstermBackend,
@@ -1979,9 +1980,10 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                     let ctrl = mods.contains(KeyModifiers::CONTROL);
                     let alt = mods.contains(KeyModifiers::ALT);
                     let super_key = mods.contains(KeyModifiers::SUPER);
-                    let typing_mods = mods.intersects(
-                        KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER,
-                    );
+                    // Char insert only for plain typing (or Shift for uppercase) —
+                    // Ctrl/Alt/Super chords must never type into Name/Notes.
+                    let plain_or_shift =
+                        mods.is_empty() || mods == KeyModifiers::SHIFT;
 
                     // Ctrl+Enter always creates from any field.
                     if matches!(key.code, KeyCode::Enter) && ctrl {
@@ -2053,7 +2055,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                             }
                         }
                         KeyCode::Char('j')
-                            if !typing_mods
+                            if plain_or_shift
                                 && !matches!(
                                     app.new_project.field,
                                     NewProjectField::Name | NewProjectField::Notes
@@ -2062,7 +2064,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                             app.new_project.field = app.new_project.field.next();
                         }
                         KeyCode::Char('k')
-                            if !typing_mods
+                            if plain_or_shift
                                 && !matches!(
                                     app.new_project.field,
                                     NewProjectField::Name | NewProjectField::Notes
@@ -2104,7 +2106,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                             }
                             _ => {}
                         },
-                        KeyCode::Char(' ') if !typing_mods => match app.new_project.field {
+                        KeyCode::Char(' ') if plain_or_shift => match app.new_project.field {
                             NewProjectField::Name => {
                                 if app.new_project.name.chars().count() < NAME_MAX_CHARS {
                                     app.new_project.name.push(' ');
@@ -2188,7 +2190,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                             }
                             _ => {}
                         },
-                        KeyCode::Char(c) if !c.is_control() && !typing_mods => {
+                        KeyCode::Char(c) if !c.is_control() && plain_or_shift => {
                             match app.new_project.field {
                                 NewProjectField::Name => {
                                     if app.new_project.name.chars().count() < NAME_MAX_CHARS {
@@ -3676,6 +3678,9 @@ fn default_init_agent(settings: &SettingsFile) -> Option<Action> {
     Some(eligible[0])
 }
 
+/// Split resolved command into program + argv prefix.
+/// Whitespace-split only — paths with spaces in custom `GROK_TERMINAL_*_COMMAND` /
+/// `MC_*_COMMAND` env overrides are not supported.
 fn resolve_program(action: Action) -> Option<(String, Vec<String>)> {
     let cmd = action.resolve_command()?;
     let mut parts = cmd.split_whitespace();
@@ -3774,12 +3779,12 @@ fn draw_new_project_popup(frame: &mut Frame<'_>, app: &mut App) {
         chunks[0],
     );
 
-    let name_display = if app.new_project.name.is_empty() {
+    let name_raw = if app.new_project.name.is_empty() {
         "…".to_string()
     } else {
         app.new_project.name.clone()
     };
-    let parent_display = display_path(&app.new_project.parent);
+    let parent_raw = format!("{}  ↵", display_path(&app.new_project.parent));
     let elevated = app
         .new_project
         .init_agent
@@ -3797,12 +3802,8 @@ fn draw_new_project_popup(frame: &mut Frame<'_>, app: &mut App) {
     };
 
     let top_rows: [(&str, String, NewProjectField); 4] = [
-        ("Name", name_display, NewProjectField::Name),
-        (
-            "Parent",
-            format!("{parent_display}  ↵"),
-            NewProjectField::Parent,
-        ),
+        ("Name", name_raw, NewProjectField::Name),
+        ("Parent", parent_raw, NewProjectField::Parent),
         (
             "Template",
             app.new_project.template.label().to_string(),
@@ -3817,16 +3818,23 @@ fn draw_new_project_popup(frame: &mut Frame<'_>, app: &mut App) {
         let selected = app.new_project.field == field;
         let style = field_row_style(selected, false, &t);
         let marker = if selected { ">" } else { " " };
-        let value_out = if selected && field == NewProjectField::Name {
-            if app.new_project.name.is_empty() {
-                format!("▌{value}")
-            } else {
-                format!("{value}▌")
+        let prefix = format!("{marker} {label:<11} ");
+        let avail = field_w.saturating_sub(display_width(&prefix));
+        // Name: sliding tail keeps caret + recent chars; Parent: front-ellipsize keeps leaf.
+        let value_out = match field {
+            NewProjectField::Name if selected => {
+                let with_caret = if app.new_project.name.is_empty() {
+                    format!("▌{value}")
+                } else {
+                    format!("{value}▌")
+                };
+                sliding_tail(&with_caret, avail)
             }
-        } else {
-            value
+            NewProjectField::Name => sliding_tail(&value, avail),
+            NewProjectField::Parent => front_ellipsize(&value, avail),
+            _ => sliding_tail(&value, avail),
         };
-        let raw = format!("{marker} {label:<11} {value_out}");
+        let raw = format!("{prefix}{value_out}");
         top_lines.push(Line::from(Span::styled(pad_line(&raw, field_w), style)));
     }
     frame.render_widget(
@@ -3856,6 +3864,8 @@ fn draw_new_project_popup(frame: &mut Frame<'_>, app: &mut App) {
     let end_line_idx = new_project::notes_lines(&app.new_project.notes)
         .len()
         .saturating_sub(1);
+    let notes_indent = "  ";
+    let notes_avail = notes_box_w.saturating_sub(display_width(notes_indent));
     let mut note_lines = Vec::new();
     for (i, line) in viewport.iter().enumerate() {
         let line_idx = app.new_project.notes_scroll as usize + i;
@@ -3871,6 +3881,8 @@ fn draw_new_project_popup(frame: &mut Frame<'_>, app: &mut App) {
                 format!("{text}▌")
             };
         }
+        // Sliding tail so long lines keep the caret / recent input visible.
+        let text = sliding_tail(&text, notes_avail);
         let style = if notes_selected {
             Style::default().fg(ACCENT_ON).bg(ACCENT)
         } else if notes_empty {
@@ -3878,8 +3890,7 @@ fn draw_new_project_popup(frame: &mut Frame<'_>, app: &mut App) {
         } else {
             Style::default().fg(t.soft).bg(t.bg)
         };
-        // Indent content so it sits under the value column.
-        let raw = format!("  {text}");
+        let raw = format!("{notes_indent}{text}");
         note_lines.push(Line::from(Span::styled(pad_line(&raw, notes_box_w), style)));
     }
     frame.render_widget(
@@ -3922,13 +3933,23 @@ fn draw_new_project_popup(frame: &mut Frame<'_>, app: &mut App) {
 }
 
 fn new_project_popup_rect(screen: Rect) -> Rect {
-    let width = screen.width.min(76).max(44);
+    // Prefer a roomy popup, but never force mins larger than the screen.
+    let width = if screen.width >= 44 {
+        screen.width.min(76).max(44)
+    } else {
+        screen.width.max(1)
+    };
     // Taller for multi-line notes (help+4 fields+label+3 notes+create+status ≈ 12 + chrome).
-    let height = screen.height.saturating_sub(2).min(22).max(18);
+    let preferred_h = screen.height.saturating_sub(2).min(22);
+    let height = if preferred_h >= 18 {
+        preferred_h
+    } else {
+        screen.height.max(1)
+    };
     Rect {
         x: screen.x + screen.width.saturating_sub(width) / 2,
         y: screen.y + screen.height.saturating_sub(height) / 2,
-        width,
-        height,
+        width: width.min(screen.width.max(1)),
+        height: height.min(screen.height.max(1)),
     }
 }

@@ -215,7 +215,7 @@ pub fn slugify_project_name(raw: &str) -> Result<String, String> {
         out.pop();
     }
     if out.is_empty() {
-        return Err("name required".into());
+        return Err("name needs ascii letters/digits".into());
     }
     Ok(out)
 }
@@ -350,7 +350,16 @@ pub fn create_scaffold(
     Ok(target)
 }
 
+/// Display column width of `s` (Unicode-aware; control chars count as 0).
+pub fn display_width(s: &str) -> usize {
+    s.chars()
+        .map(|ch| UnicodeWidthChar::width(ch).unwrap_or(0))
+        .sum()
+}
+
 /// Pad/truncate to `width` **display** columns (Unicode-aware).
+/// Truncates from the **end** (front kept) — use [`sliding_tail`] / [`front_ellipsize`]
+/// when the cursor or leaf path must stay visible.
 pub fn pad_line(s: &str, width: usize) -> String {
     if width == 0 {
         return String::new();
@@ -369,6 +378,45 @@ pub fn pad_line(s: &str, width: usize) -> String {
         out.push_str(&" ".repeat(width - cols));
     }
     out
+}
+
+/// Sliding tail window: keep the **end** of `s` within `width` display columns.
+/// When truncated, prefixes `…` so recent input / caret stay visible.
+pub fn sliding_tail(s: &str, width: usize) -> String {
+    if width == 0 {
+        return String::new();
+    }
+    if display_width(s) <= width {
+        return s.to_string();
+    }
+    // Single-column ellipsis when there is room; otherwise hard-clip the tail.
+    let ell = '…';
+    let ell_w = UnicodeWidthChar::width(ell).unwrap_or(1);
+    if width <= ell_w {
+        return String::from(ell);
+    }
+    let avail = width.saturating_sub(ell_w);
+    let mut rev: Vec<char> = Vec::new();
+    let mut cols = 0usize;
+    for ch in s.chars().rev() {
+        let w = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if cols + w > avail {
+            break;
+        }
+        rev.push(ch);
+        cols += w;
+    }
+    rev.reverse();
+    let mut out = String::from(ell);
+    for ch in rev {
+        out.push(ch);
+    }
+    out
+}
+
+/// Front-ellipsize so the **leaf** (end) stays visible — for parent paths.
+pub fn front_ellipsize(s: &str, width: usize) -> String {
+    sliding_tail(s, width)
 }
 
 /// Logical lines of notes (always at least one empty line for empty string).

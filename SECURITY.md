@@ -17,6 +17,7 @@ T-0 is a **local full shell** in the browser.
 | No-Origin clients | Denied unless `MC_ALLOW_NO_ORIGIN=1` |
 | Attachments | Same-origin POSTs only; sanitized basenames; max count, file size, and request size |
 | Agent install | Default **npm packages only**; `curl \| bash` recipes need `MC_ALLOW_SCRIPT_INSTALL=1` |
+| New-project headless init | Init recipes may grant **elevated tool autonomy** (skip prompts / force / auto-write); argv-only (no shell interpolation of notes); scoped by prompt + process cwd to the new project dir |
 
 ## Cross-site WebSocket (CSWSH)
 
