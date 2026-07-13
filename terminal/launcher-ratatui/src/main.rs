@@ -1988,29 +1988,29 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                             app.screen = Screen::Picker;
                             app.clear_status();
                         }
-                        KeyCode::Down | KeyCode::Char('j')
-                            if app.new_project.field != NewProjectField::Name
-                                && app.new_project.field != NewProjectField::Notes =>
+                        // Arrows always move fields (including from Name/Notes).
+                        // j/k only move when not typing in Name/Notes.
+                        KeyCode::Down => {
+                            app.new_project.field = app.new_project.field.next();
+                        }
+                        KeyCode::Up => {
+                            app.new_project.field = app.new_project.field.prev();
+                        }
+                        KeyCode::Char('j')
+                            if !matches!(
+                                app.new_project.field,
+                                NewProjectField::Name | NewProjectField::Notes
+                            ) =>
                         {
                             app.new_project.field = app.new_project.field.next();
                         }
-                        KeyCode::Up | KeyCode::Char('k')
-                            if app.new_project.field != NewProjectField::Name
-                                && app.new_project.field != NewProjectField::Notes =>
+                        KeyCode::Char('k')
+                            if !matches!(
+                                app.new_project.field,
+                                NewProjectField::Name | NewProjectField::Notes
+                            ) =>
                         {
                             app.new_project.field = app.new_project.field.prev();
-                        }
-                        KeyCode::Down if app.new_project.field == NewProjectField::Name => {
-                            app.new_project.field = NewProjectField::Parent;
-                        }
-                        KeyCode::Down if app.new_project.field == NewProjectField::Notes => {
-                            app.new_project.field = NewProjectField::Create;
-                        }
-                        KeyCode::Up if app.new_project.field == NewProjectField::Parent => {
-                            app.new_project.field = NewProjectField::Name;
-                        }
-                        KeyCode::Up if app.new_project.field == NewProjectField::Create => {
-                            app.new_project.field = NewProjectField::Notes;
                         }
                         KeyCode::Tab => {
                             app.new_project.field = app.new_project.field.next();
@@ -2192,6 +2192,37 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 _ => {}
             }
             }
+            Event::Mouse(mouse) if app.screen == Screen::NewProject => match mouse.kind {
+                MouseEventKind::ScrollDown => {
+                    app.new_project.field = app.new_project.field.next();
+                }
+                MouseEventKind::ScrollUp => {
+                    app.new_project.field = app.new_project.field.prev();
+                }
+                MouseEventKind::Down(MouseButton::Left) => {
+                    // Click a field row inside the popup (matches draw: border + inset + help + fields).
+                    let panel = app.panel_area;
+                    if panel.width > 0
+                        && panel.height > 0
+                        && mouse.column >= panel.x
+                        && mouse.column < panel.x.saturating_add(panel.width)
+                        && mouse.row >= panel.y
+                        && mouse.row < panel.y.saturating_add(panel.height)
+                    {
+                        let inner = inset(panel, 2, 1);
+                        // First row of inner = help; fields start at +1
+                        let fields_top = inner.y.saturating_add(1);
+                        if mouse.row >= fields_top {
+                            let row = (mouse.row - fields_top) as usize;
+                            let fields = NewProjectField::all();
+                            if row < fields.len() {
+                                app.new_project.field = fields[row];
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            },
             Event::Mouse(mouse) if app.screen == Screen::FolderPicker => match mouse.kind {
                 MouseEventKind::ScrollDown => app.folder.select_next(),
                 MouseEventKind::ScrollUp => app.folder.select_prev(),
