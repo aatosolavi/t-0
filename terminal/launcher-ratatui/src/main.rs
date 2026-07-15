@@ -40,7 +40,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, BorderType, Borders, Clear, Paragraph},
     Frame, Terminal,
 };
 use serde::{Deserialize, Serialize};
@@ -1560,11 +1560,12 @@ fn draw_splash(frame: &mut Frame<'_>, splash: &Splash, t: Theme) {
     let block = Block::default()
         .title(format!(" {APP_NAME} "))
         .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(t.border))
         .style(Style::default().bg(t.bg).fg(t.text));
     frame.render_widget(block, area);
 
-    let inner = inset(area, 2, 1);
+    let inner = inset(area, PANEL_PAD_H, PANEL_PAD_V);
     let elapsed = splash.elapsed_ms();
 
     // Vertical stack: spacer / wordmark / tagline / rule / spacer / skip
@@ -1894,7 +1895,7 @@ fn run_app(
             }
             Event::Mouse(mouse) if app.screen == Screen::Settings => {
                 let panel = app.panel_area;
-                let inner = inset(panel, 2, 1);
+                let inner = inset(panel, PANEL_PAD_H, PANEL_PAD_V);
                 let lay = settings_ui::layout(inner);
                 let (sel, action) =
                     settings_ui::handle_mouse(mouse, app.settings_selected, &lay);
@@ -2019,11 +2020,12 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     let block = Block::default()
         .title(format!(" {APP_NAME} "))
         .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(t.border))
         .style(Style::default().bg(t.bg).fg(t.text));
     frame.render_widget(block, area);
 
-    let inner = inset(area, 2, 1);
+    let inner = inset(area, PANEL_PAD_H, PANEL_PAD_V);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -2629,6 +2631,10 @@ fn panel_rect(screen: Rect, content_rows: u16) -> Rect {
     }
 }
 
+/// Inner content pad past the border (one cell more than bare border → airy labels).
+pub(crate) const PANEL_PAD_H: u16 = 3;
+pub(crate) const PANEL_PAD_V: u16 = 1;
+
 pub(crate) fn inset(area: Rect, horizontal: u16, vertical: u16) -> Rect {
     Rect {
         x: area.x + horizontal,
@@ -3172,8 +3178,7 @@ fn draw_help_overlay(frame: &mut Frame<'_>, _app: &App) {
     ];
     let content = lines.len() as u16;
     let width = frame.area().width.min(72).max(40);
-    // +2 = top/bottom borders. inset(..., 1) already sits between them;
-    // +4 left two empty rows under the last help line.
+    // +2 = top/bottom borders. PANEL_PAD_V sits content between them.
     let height = (content + 2)
         .min(frame.area().height.saturating_sub(2))
         .max(content.saturating_add(2));
@@ -3192,11 +3197,12 @@ fn draw_help_overlay(frame: &mut Frame<'_>, _app: &App) {
     let block = Block::default()
         .title(format!(" {APP_NAME} · Keys "))
         .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(ACCENT))
         .style(Style::default().bg(t.bg).fg(t.text));
     frame.render_widget(block, area);
 
-    let inner = inset(area, 2, 1);
+    let inner = inset(area, PANEL_PAD_H, PANEL_PAD_V);
     let mut out = Vec::new();
     for line in lines {
         if line.is_empty() {

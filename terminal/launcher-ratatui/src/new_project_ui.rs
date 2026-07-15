@@ -7,7 +7,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, BorderType, Borders, Clear, Paragraph},
     Frame,
 };
 
@@ -69,8 +69,9 @@ pub fn popup_rect(screen: Rect) -> Rect {
 
 /// Build layout from the outer popup rect (inside borders).
 pub fn layout(popup: Rect) -> NpLayout {
-    // Horizontal pad 2, vertical pad 0 — border already occupies top/bottom of `popup`.
-    let padded = inset(popup, 2, 0);
+    // Match main panels: extra horizontal air past the border; vertical pad 0
+    // because border rows are skipped via y+1 / height-2 below.
+    let padded = inset(popup, crate::PANEL_PAD_H, 0);
     let inner = Rect {
         x: padded.x,
         y: padded.y.saturating_add(1),
@@ -183,6 +184,7 @@ pub fn draw(
     let block = Block::default()
         .title(format!(" {APP_NAME} · New project "))
         .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(ACCENT))
         .style(Style::default().bg(t.bg).fg(t.text));
     frame.render_widget(block, area);
