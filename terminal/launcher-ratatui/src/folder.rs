@@ -10,7 +10,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
 
@@ -301,11 +301,12 @@ pub fn draw(
             FolderPickerPurpose::NewProjectParent => " Choose project parent ",
         })
         .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(t.border))
         .style(Style::default().bg(t.bg).fg(t.text));
     frame.render_widget(block, panel);
 
-    let inner = inset(panel, 2, 1);
+    let inner = inset(panel, crate::PANEL_PAD_H, crate::PANEL_PAD_V);
     let lay = layout(inner);
 
     let title_path = display_path(folder.current_path());

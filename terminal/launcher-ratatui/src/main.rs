@@ -12,7 +12,7 @@ use std::{
     collections::{HashMap, HashSet},
     env,
     fs,
-    io::{self, IsTerminal, stdout},
+    io::{self, IsTerminal, Write, stdout},
     path::{Path, PathBuf},
     process::Command,
     sync::mpsc::{Receiver, TryRecvError},
@@ -40,7 +40,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, BorderType, Borders, Clear, Paragraph},
     Frame, Terminal,
 };
 use serde::{Deserialize, Serialize};
@@ -1296,6 +1296,21 @@ impl App {
         self.apply_filter();
     }
 
+    /// Bracketed paste into the workspace filter (printable chars only).
+    fn push_filter_paste(&mut self, text: &str) {
+        let mut changed = false;
+        for c in text.chars() {
+            if c.is_control() {
+                continue;
+            }
+            self.filter.push(c);
+            changed = true;
+        }
+        if changed {
+            self.apply_filter();
+        }
+    }
+
     fn pop_filter_char(&mut self) {
         self.filter.pop();
         self.apply_filter();
@@ -1390,6 +1405,8 @@ enum SideAction {
 }
 
 fn main() -> io::Result<()> {
+    install_panic_hook();
+
     // P3: build app (starts async git) before splash so badges fill during splash.
     let mut app = App::new();
     let mut first_ui = true;
@@ -1435,6 +1452,24 @@ fn main() -> io::Result<()> {
             None => return Ok(()),
         }
     }
+}
+
+/// Restore raw/alt/mouse if we panic while the TUI owns the PTY (browser or local).
+/// Installed once at process start — safe if already restored.
+fn install_panic_hook() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = disable_raw_mode();
+        let mut out = io::stdout();
+        let _ = execute!(
+            out,
+            LeaveAlternateScreen,
+            DisableMouseCapture,
+            Show
+        );
+        let _ = out.flush();
+        previous(info);
+    }));
 }
 
 /// Splash: env MC_SPLASH wins; else launcher-state settings.splash (default on).
@@ -1525,11 +1560,12 @@ fn draw_splash(frame: &mut Frame<'_>, splash: &Splash, t: Theme) {
     let block = Block::default()
         .title(format!(" {APP_NAME} "))
         .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(t.border))
         .style(Style::default().bg(t.bg).fg(t.text));
     frame.render_widget(block, area);
 
-    let inner = inset(area, 2, 1);
+    let inner = inset(area, PANEL_PAD_H, PANEL_PAD_V);
     let elapsed = splash.elapsed_ms();
 
     // Vertical stack: spacer / wordmark / tagline / rule / spacer / skip
@@ -1859,7 +1895,7 @@ fn run_app(
             }
             Event::Mouse(mouse) if app.screen == Screen::Settings => {
                 let panel = app.panel_area;
-                let inner = inset(panel, 2, 1);
+                let inner = inset(panel, PANEL_PAD_H, PANEL_PAD_V);
                 let lay = settings_ui::layout(inner);
                 let (sel, action) =
                     settings_ui::handle_mouse(mouse, app.settings_selected, &lay);
@@ -1945,6 +1981,21 @@ fn run_app(
                 }
                 needs_draw = true;
             }
+            Event::Paste(text) => {
+                // Bracketed paste (xterm.js / modern terminals). Without this,
+                // paste is ignored while the event is still consumed.
+                match app.screen {
+                    Screen::Picker if !app.help_open => {
+                        app.push_filter_paste(&text);
+                        needs_draw = true;
+                    }
+                    Screen::NewProject => {
+                        new_project_input::handle_paste(&mut app.new_project, &text);
+                        needs_draw = true;
+                    }
+                    _ => {}
+                }
+            }
             _ => {}
                 }
             }
@@ -1969,11 +2020,12 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     let block = Block::default()
         .title(format!(" {APP_NAME} "))
         .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(t.border))
         .style(Style::default().bg(t.bg).fg(t.text));
     frame.render_widget(block, area);
 
-    let inner = inset(area, 2, 1);
+    let inner = inset(area, PANEL_PAD_H, PANEL_PAD_V);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -2579,6 +2631,10 @@ fn panel_rect(screen: Rect, content_rows: u16) -> Rect {
     }
 }
 
+/// Inner content pad past the border (one cell more than bare border → airy labels).
+pub(crate) const PANEL_PAD_H: u16 = 3;
+pub(crate) const PANEL_PAD_V: u16 = 1;
+
 pub(crate) fn inset(area: Rect, horizontal: u16, vertical: u16) -> Rect {
     Rect {
         x: area.x + horizontal,
@@ -3122,8 +3178,7 @@ fn draw_help_overlay(frame: &mut Frame<'_>, _app: &App) {
     ];
     let content = lines.len() as u16;
     let width = frame.area().width.min(72).max(40);
-    // +2 = top/bottom borders. inset(..., 1) already sits between them;
-    // +4 left two empty rows under the last help line.
+    // +2 = top/bottom borders. PANEL_PAD_V sits content between them.
     let height = (content + 2)
         .min(frame.area().height.saturating_sub(2))
         .max(content.saturating_add(2));
@@ -3142,11 +3197,12 @@ fn draw_help_overlay(frame: &mut Frame<'_>, _app: &App) {
     let block = Block::default()
         .title(format!(" {APP_NAME} · Keys "))
         .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(ACCENT))
         .style(Style::default().bg(t.bg).fg(t.text));
     frame.render_widget(block, area);
 
-    let inner = inset(area, 2, 1);
+    let inner = inset(area, PANEL_PAD_H, PANEL_PAD_V);
     let mut out = Vec::new();
     for line in lines {
         if line.is_empty() {

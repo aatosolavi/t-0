@@ -246,6 +246,42 @@ pub fn handle_key(form: &mut NewProjectForm, key: KeyEvent) -> NpAction {
     }
 }
 
+/// Bracketed paste into Name / Notes (other fields ignore).
+pub fn handle_paste(form: &mut NewProjectForm, text: &str) {
+    match form.field {
+        NewProjectField::Name => {
+            for c in text.chars() {
+                if c.is_control() {
+                    continue;
+                }
+                if form.name.chars().count() >= NAME_MAX_CHARS {
+                    break;
+                }
+                form.name.push(c);
+            }
+        }
+        NewProjectField::Notes => {
+            let mut changed = false;
+            for c in text.chars() {
+                // Allow newlines in notes paste; skip other controls.
+                if c != '\n' && c != '\t' && c.is_control() {
+                    continue;
+                }
+                let ch = if c == '\t' { ' ' } else { c };
+                if form.notes.chars().count() >= NOTES_MAX_CHARS {
+                    break;
+                }
+                form.notes.push(ch);
+                changed = true;
+            }
+            if changed {
+                form.notes_scroll = auto_scroll_notes_to_end(&form.notes);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Mouse while New Project is open. `panel` is the popup rect from last draw.
 pub fn handle_mouse(
     form: &mut NewProjectForm,
@@ -350,6 +386,18 @@ mod tests {
             handle_key(&mut f, key_mod(KeyCode::Enter, KeyModifiers::CONTROL)),
             NpAction::Create
         );
+    }
+
+    #[test]
+    fn paste_into_name_and_notes() {
+        let mut f = form();
+        f.field = NewProjectField::Name;
+        handle_paste(&mut f, "hello\nworld");
+        assert_eq!(f.name, "helloworld"); // newlines stripped for name
+
+        f.field = NewProjectField::Notes;
+        handle_paste(&mut f, "line1\nline2");
+        assert_eq!(f.notes, "line1\nline2");
     }
 
     #[test]

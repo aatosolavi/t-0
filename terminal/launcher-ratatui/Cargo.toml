@@ -8,8 +8,14 @@ name = "t0"
 path = "src/main.rs"
 
 [dependencies]
-crossterm = "0.28"
-ratatui = "0.30"
+# Keep Crossterm major aligned with ratatui's default backend (0.29) so events
+# and draw share one raw-mode / event-queue implementation.
+crossterm = "0.29"
+ratatui = { version = "0.30", default-features = false, features = [
+    "crossterm",
+    "layout-cache",
+    "underline-color",
+] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 unicode-width = "0.2"
