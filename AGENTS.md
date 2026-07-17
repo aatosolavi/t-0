@@ -68,6 +68,23 @@ Keep these aligned on a release: `package.json`, `terminal/launcher-ratatui/Carg
 - **Fake fade:** terminals cannot alpha-fade; use a 3-step color ramp (dim → muted → text) over 3 frames at 40 ms poll. Reuse the status active path.
 - **Do not:** smooth-scroll selection, pulse dirty `*` or any per-row idle motion, idle easter eggs that force continuous redraw, or animate two places simultaneously. Do not delay the launch/exec path for branding.
 
+## Cursor Cloud specific instructions
+
+Cloud agents use `.cursor/environment.json`. Snapshot should include Bun (`~/.bun`), Node 22, and Rust stable. After boot, `install` runs `bun install --frozen-lockfile` and `bun run terminal:launcher:build` (fails fast if `bun` is missing — no remote bootstrap).
+
+```bash
+export PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"
+bun run check
+cargo test --manifest-path terminal/launcher-ratatui/Cargo.toml
+# live stack (auto-started via environment terminals; PTY then execs installed ~/.t-0/bin/t0):
+bun run terminal   # http://127.0.0.1:4321 — not `t0` directly
+```
+
+Notes:
+- `bun run terminal:install` installs a macOS LaunchAgent — skip on Linux cloud VMs; use `bun run terminal` / `bun run terminal:launcher:build` instead.
+- `t0` needs a real TTY; non-interactive `t0` may exit with ENXIO — expected. Prefer `cargo test` / `bun run check` for verification.
+- Rebuild launcher after Rust edits: `bun run terminal:launcher:build` (also done by cloud `install`).
+
 ## Do not reintroduce without intent
 
 - Next.js dashboard / `app/` routes

@@ -1,0 +1,14 @@
+{
+  "install": "export PATH=\"$HOME/.bun/bin:$HOME/.local/bin:$PATH\" && command -v bun >/dev/null || { echo \"bun missing from cloud snapshot; install Bun and resnapshot\" >&2; exit 1; } && bun install --frozen-lockfile && bun run terminal:launcher:build",
+  "terminals": [
+    {
+      "name": "terminal",
+      "command": "export PATH=\"$HOME/.bun/bin:$HOME/.local/bin:$PATH\" && bun run terminal",
+      "description": "Browser terminal stack — HTML :4321, PTY broker :4322. t0 is built in install and spawned by the PTY broker on connect; do not replace this command with the launcher binary alone."
+    }
+  ],
+  "ports": [
+    { "name": "html", "port": 4321 },
+    { "name": "pty", "port": 4322 }
+  ]
+}
