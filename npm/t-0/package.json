@@ -1,0 +1,39 @@
+{
+  "name": "t-0",
+  "version": "0.3.0",
+  "description": "Install or open T-0 — local browser terminal + agent launcher (macOS)",
+  "type": "module",
+  "bin": {
+    "t-0": "bin/t0.mjs",
+    "t0": "bin/t0.mjs"
+  },
+  "files": [
+    "bin"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "os": [
+    "darwin"
+  ],
+  "keywords": [
+    "t-0",
+    "terminal",
+    "pty",
+    "launcher",
+    "macos"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aatosolavi/t-0.git",
+    "directory": "npm/t-0"
+  },
+  "homepage": "https://t-0.dev",
+  "bugs": {
+    "url": "https://github.com/aatosolavi/t-0/issues"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,0 +1,10 @@
+node_modules
+**/node_modules
+target
+**/target
+.git
+.env*
+*.log
+terminal/dist
+terminal/launcher-ratatui/target
+.cursor

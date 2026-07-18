@@ -5,6 +5,7 @@
 /build
 /terminal/dist
 target/
+/www/public/install
 
 # misc
 .DS_Store
@@ -21,3 +22,5 @@ bun-debug.log*
 
 # typescript
 *.tsbuildinfo
+.vercel
+.env.local

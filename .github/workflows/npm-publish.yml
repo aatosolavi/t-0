@@ -1,0 +1,42 @@
+name: npm publish t-0
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: npm-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish npm/t-0
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Assert tag matches package version
+        working-directory: npm/t-0
+        run: |
+          set -euo pipefail
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          TAG="${GITHUB_REF_NAME#v}"
+          if [[ "$TAG" != "$PKG_VERSION" ]]; then
+            echo "Tag v$TAG does not match npm/t-0 version $PKG_VERSION" >&2
+            exit 1
+          fi
+
+      - name: Publish
+        working-directory: npm/t-0
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

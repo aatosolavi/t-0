@@ -50,6 +50,8 @@ CI-equivalent check: `bun run check` (vendor + tsc + shell + data-dir + cargo ch
 | `terminal/vendor.ts` | xterm bundle entry → `terminal/dist/` (built by `terminal:vendor:build`) |
 | `terminal/launcher-ratatui` | T-0 TUI (`t0`) |
 | `extension/` | Helium/Chrome new-tab redirect |
+| `npm/t-0/` | Public npm bootstrap (`npx t-0`) — publish on `v*` tags |
+| `www/` | [t-0.dev](https://t-0.dev) landing + `/install` (Vercel) |
 
 ## Pull requests
 
@@ -86,6 +88,12 @@ Open source maintainers are drowning in low-quality agent PRs. T-0 is built *for
 If a PR is clearly unreviewed slop, it may be closed without a long debate. That’s about maintainer time, not ideology.
 
 Inspired by patterns many OSS maintainers are formalizing in 2025–2026 (e.g. Godot’s AI contribution tightening; “if you didn’t read every line, don’t open the PR”).
+
+## Releases (npm + site)
+
+- Bump versions together: root `package.json`, `npm/t-0/package.json`, `terminal/launcher-ratatui/Cargo.toml` (+ lockfile), `extension/manifest.json`, `CHANGELOG.md`.
+- **npm:** set repo secret `NPM_TOKEN`, then `git tag vX.Y.Z && git push origin vX.Y.Z` — workflow `.github/workflows/npm-publish.yml` publishes `npm/t-0`.
+- **Site:** `www/` deploys to Vercel (domain `t-0.dev`). `bun run www:build` copies `install.sh` → `www/public/install`.
 
 ## Security
 

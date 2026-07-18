@@ -4,7 +4,7 @@ Product UI name: **T-0**. GitHub repo: `t-0`. CLI: **`t0`** (legacy alias `mc`).
 
 This repo is **browser terminal only** (not a Next.js app).
 
-**Installing T-0 for a user (not editing this repo):** follow [docs/for-coding-agents.md](./docs/for-coding-agents.md) or the skill [.agents/skills/install-t0/SKILL.md](./.agents/skills/install-t0/SKILL.md).
+**Installing T-0 for a user (not editing this repo):** preferred `npx t-0` or `curl -fsSL https://t-0.dev/install | bash`. Details: [docs/for-coding-agents.md](./docs/for-coding-agents.md) or [.agents/skills/install-t0/SKILL.md](./.agents/skills/install-t0/SKILL.md).
 
 ## What matters
 

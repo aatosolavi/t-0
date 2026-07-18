@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # T-0 — quick install (macOS-first)
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/aatosolavi/t-0/main/install.sh | bash
-# Or:
+#   npx t-0
+#   curl -fsSL https://t-0.dev/install | bash
+# Or from a clone:
 #   ./install.sh
 set -euo pipefail
 

@@ -25,10 +25,20 @@ Open a tab. Get a full PTY. Pick a workspace. Launch Claude, Codex, Pi, Cursor, 
 
 ## Install (macOS)
 
-### One-liner
+Site: [t-0.dev](https://t-0.dev)
+
+### Preferred — npx
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/aatosolavi/t-0/main/install.sh | bash
+npx t-0
+```
+
+Installs (or opens) T-0. Requires git, Node, Bun, and rustup.
+
+### Curl
+
+```bash
+curl -fsSL https://t-0.dev/install | bash
 ```
 
 ### From a clone

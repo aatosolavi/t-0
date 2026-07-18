@@ -1,6 +1,6 @@
 {
   "name": "t-0",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "private": true,
   "description": "T-0 — browser terminal + agent launcher (real local PTY in a tab)",
   "repository": {
@@ -20,9 +20,10 @@
     "install:service": "./terminal/install-launch-agent.sh",
     "typecheck": "tsc -p tsconfig.json",
     "check:shell": "bash -n install.sh && bash -n terminal/install-launch-agent.sh",
+    "www:build": "node www/scripts/copy-install.mjs",
     "check:data-dir": "node --input-type=module -e \"import { modernDataDir, dataDir } from './terminal/data-dir.mjs'; if (!modernDataDir().endsWith('.t-0')) process.exit(1); dataDir(); console.log('data-dir ok')\"",
     "check:rust": "rustup run stable cargo check --locked --manifest-path terminal/launcher-ratatui/Cargo.toml",
-    "check": "bun run terminal:vendor:build && bun run typecheck && bun run check:shell && bun run check:data-dir && bun run check:rust"
+    "check": "bun run terminal:vendor:build && bun run typecheck && bun run check:shell && bun run check:data-dir && bun run check:rust && bun run www:build"
   },
   "dependencies": {
     "@lydell/node-pty": "^1.2.0-beta.12",

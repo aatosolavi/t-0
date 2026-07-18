@@ -28,13 +28,19 @@ git --version && node -v && bun -v && rustup -V
 
 Missing Bun → https://bun.sh · Missing rustup → https://rustup.rs (required to build `t0`).
 
-### 2. One-liner (preferred)
+### 2. Preferred — npx
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/aatosolavi/t-0/main/install.sh | bash
+npx t-0
 ```
 
-### 3. Or clone
+### 3. Or curl
+
+```bash
+curl -fsSL https://t-0.dev/install | bash
+```
+
+### 4. Or clone
 
 ```bash
 git clone https://github.com/aatosolavi/t-0.git && cd t-0
@@ -42,7 +48,7 @@ bun install && bun run terminal:install
 open https://t0.localhost   # or http://127.0.0.1:4321
 ```
 
-### 4. Verify
+### 5. Verify
 
 ```bash
 command -v t0 && t0

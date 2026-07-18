@@ -12,6 +12,7 @@ metadata:
 
 T-0 is a **local-first** browser terminal (real PTY) plus a Ratatui launcher (`t0`) to pick workspaces and coding agents.
 
+- **Site / install:** https://t-0.dev · `npx t-0`  
 - **Repo:** https://github.com/aatosolavi/t-0  
 - **Product UI:** https://t0.localhost (portless; fallback http://127.0.0.1:4321)  
 - **CLI:** `t0` (legacy alias `mc`)  
@@ -30,10 +31,16 @@ Confirm each exists; install only what’s missing:
 | Bun | `bun -v` | https://bun.sh |
 | rustup | `rustup -V` | https://rustup.rs (needed to **build** `t0`) |
 
-## Preferred install (one-liner)
+## Preferred install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/aatosolavi/t-0/main/install.sh | bash
+npx t-0
+```
+
+Or:
+
+```bash
+curl -fsSL https://t-0.dev/install | bash
 ```
 
 This clones to `~/dev/t-0` (or `~/t-0`), runs `bun install`, builds `t0`, installs LaunchAgent `com.mission-control.terminal`, and opens the UI.

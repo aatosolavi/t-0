@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0] — 2026-07-18
+
+### 🚀 Install surface
+- **`npx t-0`** — thin public npm package that installs or opens T-0 (macOS)
+- **[t-0.dev](https://t-0.dev)** — brand landing + canonical `https://t-0.dev/install` script
+- Docs and `install.sh` lead with npx / t-0.dev (GitHub raw curl remains as fallback inside the npm wrapper)
+
 ## [0.2.2] — 2026-07-13
 
 ### 🛠 Fixes

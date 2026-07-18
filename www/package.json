@@ -1,0 +1,10 @@
+{
+  "name": "t-0-www",
+  "private": true,
+  "version": "0.3.0",
+  "description": "t-0.dev marketing + install script surface",
+  "scripts": {
+    "build": "node scripts/copy-install.mjs",
+    "dev": "node scripts/copy-install.mjs && npx --yes serve public -l 3000"
+  }
+}
