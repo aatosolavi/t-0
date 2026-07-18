@@ -3,260 +3,26 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>T-0 — local terminal in a browser tab</title>
-    <meta
-      name="description"
-      content="T-0: a real local PTY in a browser tab, plus a launcher for workspaces and coding agents. macOS."
-    />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Syne:wght@600;700;800&display=swap"
-      rel="stylesheet"
-    />
+    <title>T-0</title>
     <style>
-      :root {
-        --ink: #12151a;
-        --paper: #e8ecef;
-        --mist: #c5ced6;
-        --amber: #e85d04;
-        --amber-hot: #ff7a1a;
-        --line: rgba(18, 21, 26, 0.12);
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-
       html,
       body {
         margin: 0;
-        min-height: 100%;
+        height: 100%;
+        background: #000;
+        color: #fff;
+        font: 16px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       }
-
       body {
-        color: var(--ink);
-        font-family: "IBM Plex Mono", ui-monospace, monospace;
-        background:
-          radial-gradient(1200px 700px at 12% -10%, rgba(232, 93, 4, 0.18), transparent 55%),
-          radial-gradient(900px 600px at 100% 20%, rgba(18, 21, 26, 0.08), transparent 50%),
-          linear-gradient(165deg, #f3f5f7 0%, var(--paper) 45%, #dce3e9 100%);
-        overflow-x: hidden;
-      }
-
-      body::before {
-        content: "";
-        position: fixed;
-        inset: 0;
-        pointer-events: none;
-        opacity: 0.35;
-        background-image:
-          linear-gradient(var(--line) 1px, transparent 1px),
-          linear-gradient(90deg, var(--line) 1px, transparent 1px);
-        background-size: 48px 48px;
-        mask-image: radial-gradient(ellipse 80% 70% at 50% 30%, #000 20%, transparent 75%);
-      }
-
-      .stage {
-        position: relative;
-        min-height: 100dvh;
         display: grid;
         place-items: center;
-        padding: clamp(1.5rem, 4vw, 3rem);
       }
-
-      .hero {
-        width: min(42rem, 100%);
-        text-align: left;
-      }
-
-      .brand {
-        font-family: Syne, system-ui, sans-serif;
-        font-weight: 800;
-        font-size: clamp(4.5rem, 16vw, 7.5rem);
-        line-height: 0.88;
-        letter-spacing: -0.06em;
-        margin: 0 0 1.25rem;
-        background: linear-gradient(120deg, var(--ink) 40%, var(--amber) 120%);
-        -webkit-background-clip: text;
-        background-clip: text;
-        color: transparent;
-        animation: brand-in 700ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-      }
-
-      .lede {
-        margin: 0 0 2rem;
-        max-width: 28rem;
-        font-size: clamp(1rem, 2.4vw, 1.15rem);
-        line-height: 1.55;
-        color: #2a3138;
-        animation: rise 700ms 80ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-      }
-
-      .cta {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.75rem 1rem;
-        align-items: center;
-        animation: rise 700ms 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-      }
-
-      .cmd {
-        position: relative;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.75rem;
+      p {
         margin: 0;
-        padding: 0.85rem 1rem 0.85rem 1.1rem;
-        border: 1px solid rgba(18, 21, 26, 0.18);
-        background: rgba(255, 255, 255, 0.72);
-        backdrop-filter: blur(8px);
-        font-size: 1rem;
-        font-weight: 500;
-        letter-spacing: -0.01em;
-        cursor: pointer;
-        transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
-      }
-
-      .cmd:hover,
-      .cmd:focus-visible {
-        border-color: var(--amber);
-        outline: none;
-        transform: translateY(-1px);
-        box-shadow: 0 10px 28px rgba(232, 93, 4, 0.12);
-      }
-
-      .cmd code {
-        font: inherit;
-      }
-
-      .cmd .hint {
-        font-size: 0.7rem;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: var(--amber);
-        font-weight: 500;
-      }
-
-      .alt {
-        margin: 0;
-        font-size: 0.85rem;
-        color: #5a6570;
-      }
-
-      .alt a {
-        color: inherit;
-        text-decoration-color: var(--mist);
-        text-underline-offset: 3px;
-      }
-
-      .alt a:hover {
-        color: var(--amber);
-        text-decoration-color: var(--amber);
-      }
-
-      .glow {
-        position: absolute;
-        width: min(28rem, 70vw);
-        height: min(28rem, 70vw);
-        right: -8%;
-        top: 10%;
-        border-radius: 50%;
-        background: radial-gradient(circle, rgba(255, 122, 26, 0.22), transparent 68%);
-        filter: blur(8px);
-        animation: pulse 5.5s ease-in-out infinite;
-        pointer-events: none;
-        z-index: 0;
-      }
-
-      .hero > * {
-        position: relative;
-        z-index: 1;
-      }
-
-      @keyframes brand-in {
-        from {
-          opacity: 0;
-          transform: translateY(18px) scale(0.98);
-          filter: blur(4px);
-        }
-        to {
-          opacity: 1;
-          transform: none;
-          filter: none;
-        }
-      }
-
-      @keyframes rise {
-        from {
-          opacity: 0;
-          transform: translateY(12px);
-        }
-        to {
-          opacity: 1;
-          transform: none;
-        }
-      }
-
-      @keyframes pulse {
-        0%,
-        100% {
-          opacity: 0.55;
-          transform: scale(1);
-        }
-        50% {
-          opacity: 0.9;
-          transform: scale(1.06);
-        }
-      }
-
-      @media (prefers-reduced-motion: reduce) {
-        .brand,
-        .lede,
-        .cta,
-        .glow {
-          animation: none;
-        }
       }
     </style>
   </head>
   <body>
-    <main class="stage">
-      <div class="glow" aria-hidden="true"></div>
-      <section class="hero">
-        <h1 class="brand">T-0</h1>
-        <p class="lede">
-          A real local terminal in a browser tab — plus a launcher for workspaces
-          and coding agents.
-        </p>
-        <div class="cta">
-          <button type="button" class="cmd" id="copy-cmd" aria-label="Copy install command">
-            <code>npx t-0</code>
-            <span class="hint" id="copy-label">copy</span>
-          </button>
-          <p class="alt">
-            or
-            <a href="/install">curl -fsSL https://t-0.dev/install | bash</a>
-            · <a href="https://github.com/aatosolavi/t-0">GitHub</a>
-          </p>
-        </div>
-      </section>
-    </main>
-    <script>
-      const btn = document.getElementById("copy-cmd");
-      const label = document.getElementById("copy-label");
-      const cmd = "npx t-0";
-      btn?.addEventListener("click", async () => {
-        try {
-          await navigator.clipboard.writeText(cmd);
-          label.textContent = "copied";
-          setTimeout(() => {
-            label.textContent = "copy";
-          }, 1400);
-        } catch {
-          label.textContent = "select";
-        }
-      });
-    </script>
+    <p>npx t-0</p>
   </body>
 </html>
