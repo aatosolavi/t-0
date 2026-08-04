@@ -21,11 +21,13 @@ import {
 import { dirname, join } from "node:path";
 import process from "node:process";
 import { dataDir } from "./data-dir.mjs";
+import { packageRoot } from "./package-root.mjs";
 
 const BIN_NAME = "t0";
 const LEGACY_BIN_NAME = "mc";
 
-const root = process.cwd();
+// Package root (clone or global npm install) — not process.cwd().
+const root = packageRoot();
 const home = process.env.HOME || root;
 const resolvedDataDir = dataDir(home);
 const releaseBinary = join(
@@ -68,9 +70,10 @@ const build = spawnSync(
     "--release",
     "--locked",
     "--manifest-path",
-    "terminal/launcher-ratatui/Cargo.toml",
+    join(root, "terminal/launcher-ratatui/Cargo.toml"),
   ],
   {
+    cwd: root,
     env,
     stdio: "inherit",
   },

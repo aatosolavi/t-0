@@ -40,6 +40,19 @@ cargo test --manifest-path terminal/launcher-ratatui/Cargo.toml
 
 CI-equivalent check: `bun run check` (vendor + tsc + shell + data-dir + cargo check).
 
+## Publishing to npm
+
+Package name: **`t-0`**. CLI bin: **`t-0`** (native pad binary remains **`t0`**).
+
+1. Bump versions in lockstep: `package.json`, `terminal/launcher-ratatui/Cargo.toml` (+ lockfile), `extension/manifest.json`, `CHANGELOG.md`.
+2. `bun run check`
+3. `npm pack --dry-run` — confirm `terminal/dist/vendor.*` is included (built by `prepublishOnly`).
+4. `npm login` (token in `~/.npmrc` must allow publish).
+5. `npm publish --access public`
+6. Tag/release on GitHub (`vX.Y.Z`) as usual.
+
+macOS only (`os: ["darwin"]`). Consumers still need Bun + rustup for `t-0 install`.
+
 ## Layout
 
 | Path | Role |
