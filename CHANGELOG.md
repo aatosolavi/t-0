@@ -7,9 +7,11 @@
 - CLI: `t-0 install` · `t-0 start` · `t-0 doctor` · `t-0 version` (native pad remains `t0`)
 - Package root resolution works for global installs (not `process.cwd()`)
 - `files` whitelist + `prepublishOnly` vendor build; macOS (`os: darwin`), Node ≥ 20
+- **GitHub Actions publish** (`.github/workflows/publish-npm.yml`) on Release — Automation token or OIDC trusted publishing (passkey-friendly; no local OTP)
 
 ### Docs
 - Install via npm alongside curl one-liner and git clone
+- CONTRIBUTING: npm CI publish setup
 
 ## [0.2.3] — 2026-08-04
 

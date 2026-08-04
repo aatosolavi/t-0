@@ -44,12 +44,39 @@ CI-equivalent check: `bun run check` (vendor + tsc + shell + data-dir + cargo ch
 
 Package name: **`t-0`**. CLI bin: **`t-0`** (native pad binary remains **`t0`**).
 
+**Preferred path: GitHub Actions** (`.github/workflows/publish-npm.yml`). Publish happens when you create a **GitHub Release** (or run the workflow manually). No local OTP — works with passkey-only 2FA on npm.
+
+### One-time setup (passkey, no authenticator app)
+
+**A. Bootstrap token (needed for the first-ever publish)**
+
+1. Open [npm Access Tokens](https://www.npmjs.com/settings/~/tokens) while logged in (passkey/security key is fine).
+2. **Generate new token → Granular access token**
+   - Type: **Automation** (bypasses 2FA at publish time — required for CI)
+   - Packages: **Read and write** (or only `t-0` once it exists)
+   - Expiry: as short as you like; rotate when it expires
+3. Copy the token → GitHub repo **Settings → Secrets and variables → Actions → New repository secret**
+   - Name: `NPM_TOKEN`
+   - Value: the token
+
+**B. After `t-0` exists on npm — Trusted Publishing (optional, no secret)**
+
+1. Package page on npmjs.com → **Settings → Trusted Publisher**
+2. Provider: **GitHub Actions**
+3. Repository: `aatosolavi/t-0`
+4. Workflow filename: `publish-npm.yml`
+5. You can delete `NPM_TOKEN` once OIDC works; the workflow uses provenance when the secret is absent.
+
+### Release steps
+
 1. Bump versions in lockstep: `package.json`, `terminal/launcher-ratatui/Cargo.toml` (+ lockfile), `extension/manifest.json`, `CHANGELOG.md`.
-2. `bun run check`
-3. `npm pack --dry-run` — confirm `terminal/dist/vendor.*` is included (built by `prepublishOnly`).
-4. `npm login` (token in `~/.npmrc` must allow publish).
-5. `npm publish --access public`
-6. Tag/release on GitHub (`vX.Y.Z`) as usual.
+2. Merge to `main` (CI green).
+3. Create a GitHub Release / tag `vX.Y.Z` → **Publish npm** workflow runs automatically.
+4. Confirm: https://www.npmjs.com/package/t-0
+
+Manual: **Actions → Publish npm → Run workflow** (optional tag input).
+
+Local publish is still possible (`npm publish --access public`) if you have a session that can complete 2FA, but CI is the default for this repo.
 
 macOS only (`os: ["darwin"]`). Consumers still need Bun + rustup for `t-0 install`.
 

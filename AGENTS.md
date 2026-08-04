@@ -23,8 +23,8 @@ bun run terminal:install      # rebuild t0 + reinstall LaunchAgent
 bun run portless:repair       # https://t0.localhost down but :4321 up
 bun run check                 # CI-equivalent: vendor + tsc + shell + data-dir + cargo check
 cargo test --manifest-path terminal/launcher-ratatui/Cargo.toml
-# npm package (publish from a clean tree):
-# npm publish                 # name t-0; CLI bin t-0
+# npm package: publish via GitHub Release → workflow publish-npm.yml
+# (secret NPM_TOKEN = granular Automation token, or Trusted Publisher OIDC)
 ```
 
 ## Config
