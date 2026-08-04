@@ -35,7 +35,7 @@ Confirm each exists; install only what’s missing:
 **npm** (when Node is already available):
 
 ```bash
-npm install -g @aatosolavi/t-0
+npm install -g @aatosolavi/t0-terminal
 t-0 install
 ```
 

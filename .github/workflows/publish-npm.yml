@@ -1,4 +1,4 @@
-# Publish @aatosolavi/t-0 to the public npm registry from GitHub Actions.
+# Publish @aatosolavi/t0-terminal to the public npm registry from GitHub Actions.
 #
 # First version is published manually (passkey in an interactive session).
 # Then link Trusted Publisher on npmjs.com → this workflow (OIDC, no secret).
