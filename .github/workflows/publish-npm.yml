@@ -1,8 +1,10 @@
 # Publish t-0 to the public npm registry from GitHub Actions.
 #
-# Preferred: npm Trusted Publishing (OIDC) — no long-lived token; approve with
-# your passkey once when linking the repo on npmjs.com.
-# Bootstrap / fallback: repository secret NPM_TOKEN (granular *Automation* token).
+# First version is published manually (passkey in an interactive session).
+# Then link Trusted Publisher on npmjs.com → this workflow (OIDC, no secret).
+#
+# Preferred: npm Trusted Publishing (OIDC) + provenance.
+# Optional fallback: repository secret NPM_TOKEN (granular *Automation* token).
 #
 # Triggers: GitHub Release published, or manual workflow_dispatch.
 

@@ -44,41 +44,45 @@ CI-equivalent check: `bun run check` (vendor + tsc + shell + data-dir + cargo ch
 
 Package name: **`t-0`**. CLI bin: **`t-0`** (native pad binary remains **`t0`**).
 
-**Preferred path: GitHub Actions** (`.github/workflows/publish-npm.yml`). Publish happens when you create a **GitHub Release** (or run the workflow manually). No local OTP — works with passkey-only 2FA on npm.
+macOS only (`os: ["darwin"]`). Consumers still need Bun + rustup for `t-0 install`.
 
-### One-time setup (passkey, no authenticator app)
+### First publish (manual, once)
 
-**A. Bootstrap token (needed for the first-ever publish)**
+The package must exist on the registry before [Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) can be linked. Do the first publish from a machine where you can complete npm 2FA with your **passkey** (interactive terminal or browser session):
 
-1. Open [npm Access Tokens](https://www.npmjs.com/settings/~/tokens) while logged in (passkey/security key is fine).
-2. **Generate new token → Granular access token**
-   - Type: **Automation** (bypasses 2FA at publish time — required for CI)
-   - Packages: **Read and write** (or only `t-0` once it exists)
-   - Expiry: as short as you like; rotate when it expires
-3. Copy the token → GitHub repo **Settings → Secrets and variables → Actions → New repository secret**
-   - Name: `NPM_TOKEN`
-   - Value: the token
+```bash
+git checkout main && git pull
+bun install
+bun run prepublishOnly          # vendor + typecheck
+npm pack --dry-run              # sanity-check tarball
+npm publish --access public     # passkey prompt is fine here
+```
 
-**B. After `t-0` exists on npm — Trusted Publishing (optional, no secret)**
+Confirm: https://www.npmjs.com/package/t-0
 
-1. Package page on npmjs.com → **Settings → Trusted Publisher**
+### Trusted Publisher (after first publish — passkey once in the browser)
+
+1. Open https://www.npmjs.com/package/t-0 → **Settings → Trusted Publisher**
 2. Provider: **GitHub Actions**
-3. Repository: `aatosolavi/t-0`
-4. Workflow filename: `publish-npm.yml`
-5. You can delete `NPM_TOKEN` once OIDC works; the workflow uses provenance when the secret is absent.
+3. Organization/user: `aatosolavi`
+4. Repository: `t-0`
+5. Workflow filename: **`publish-npm.yml`** (exact name under `.github/workflows/`)
+6. Save (approve with passkey if asked)
 
-### Release steps
+No long-lived `NPM_TOKEN` is required once this is linked. The workflow uses OIDC + provenance.
+
+Optional bootstrap secret: granular **Automation** token as repo secret `NPM_TOKEN` — only if you want token-based CI before/without Trusted Publisher.
+
+### Later releases (GitHub Actions)
 
 1. Bump versions in lockstep: `package.json`, `terminal/launcher-ratatui/Cargo.toml` (+ lockfile), `extension/manifest.json`, `CHANGELOG.md`.
 2. Merge to `main` (CI green).
 3. Create a GitHub Release / tag `vX.Y.Z` → **Publish npm** workflow runs automatically.
-4. Confirm: https://www.npmjs.com/package/t-0
+4. Or: **Actions → Publish npm → Run workflow**.
 
-Manual: **Actions → Publish npm → Run workflow** (optional tag input).
-
-Local publish is still possible (`npm publish --access public`) if you have a session that can complete 2FA, but CI is the default for this repo.
-
-macOS only (`os: ["darwin"]`). Consumers still need Bun + rustup for `t-0 install`.
+Workflow: `.github/workflows/publish-npm.yml`  
+- If `NPM_TOKEN` is set → classic token publish  
+- Else → OIDC trusted publishing (`npm publish --access public --provenance`)
 
 ## Layout
 
