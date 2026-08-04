@@ -3,7 +3,7 @@
 ## [0.3.0] — 2026-08-04
 
 ### 🚀 npm package
-- Publish **`@aatosolavi/t0-terminal`** on npm (`npm install -g @aatosolavi/t0-terminal`) — unscoped `t-0` and `@…/t-0` blocked/broken vs existing package `t0`
+- Publish **`@aatosolavi/t-0`** on npm (`npm install -g @aatosolavi/t-0`) — scoped **`@aatosolavi/t-0`** (unscoped `t-0` blocked as too similar to existing `t0`)
 - CLI bin still `t-0`: `install` · `start` · `doctor` · `version` (native pad remains `t0`)
 - Package root resolution works for global installs (not `process.cwd()`)
 - `files` whitelist + `prepublishOnly` vendor build; macOS (`os: darwin`), Node ≥ 20

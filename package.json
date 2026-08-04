@@ -1,5 +1,5 @@
 {
-  "name": "@aatosolavi/t0-terminal",
+  "name": "@aatosolavi/t-0",
   "version": "0.3.0",
   "description": "T-0 — browser terminal + agent launcher (real local PTY in a tab)",
   "license": "MIT",

@@ -42,7 +42,7 @@ CI-equivalent check: `bun run check` (vendor + tsc + shell + data-dir + cargo ch
 
 ## Publishing to npm
 
-Package name: **`@aatosolavi/t0-terminal`** (scoped — unscoped `t-0` is rejected by npm as too similar to `t0`).  
+Package name: **`@aatosolavi/t-0`** (scoped — unscoped `t-0` is rejected by npm as too similar to `t0`).  
 CLI bin: **`t-0`**. Native pad binary: **`t0`**.
 
 macOS only (`os: ["darwin"]`). Consumers still need Bun + rustup for `t-0 install`.
@@ -62,11 +62,11 @@ npm publish --access public
 
 Scoped packages need `--access public` (default is restricted).
 
-Confirm: https://www.npmjs.com/package/@aatosolavi/t0-terminal
+Confirm: https://www.npmjs.com/package/@aatosolavi/t-0
 
 ### Trusted Publisher (after first publish — passkey once in the browser)
 
-1. Open https://www.npmjs.com/package/@aatosolavi/t0-terminal → **Settings → Trusted Publisher**
+1. Open https://www.npmjs.com/package/@aatosolavi/t-0 → **Settings → Trusted Publisher**
 2. Provider: **GitHub Actions**
 3. Organization/user: `aatosolavi`
 4. Repository: `t-0` (the GitHub repo name)
