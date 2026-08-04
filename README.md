@@ -151,10 +151,14 @@ The standard address is **`https://t0.localhost`**, fronted by [portless](https:
 Manual setup or repair:
 
 ```bash
+bun run portless:repair        # alias + proxy start + doctor (from a clone)
+# or, step by step:
 bunx portless alias t0 4321 && bunx portless proxy start
 bunx portless trust            # once; adds the local CA (sudo)
-bunx portless service install  # once; start proxy at login
+bunx portless service install  # once; start proxy at login (survives reboot)
 ```
+
+**Split brain:** LaunchAgent can be healthy (`http://127.0.0.1:4321` → 200) while portless is down (`https://t0.localhost` connection refused on `:443`). Repair portless; do not restart T-0 in a loop.
 
 No portless (or Node < 24)? Nothing breaks — `http://127.0.0.1:4321` always works.
 

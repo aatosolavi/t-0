@@ -117,6 +117,7 @@ Do **not** change bind to `0.0.0.0` without explicit user consent and `MC_ALLOW_
 | Symptom | Check |
 |---------|--------|
 | Page won’t load | LaunchAgent running? `bun run terminal` in foreground for logs |
+| `https://t0.localhost` dead, `:4321` OK | Portless proxy only — `bun run portless:repair` (from clone). Persist with `bunx portless service install` if it dies after reboot |
 | No `t0` on PATH | `~/.local/bin` on PATH? Re-run `bun run terminal:launcher:install` |
 | Empty workspace list | Settings → workspace root, or `MC_WORKSPACE_ROOT` |
 | Colors wrong in Terminal.app | Prefer Ghostty / browser tab for truecolor; not a failed install |

@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.3] — 2026-08-04
+
+### 🛠 Fixes / ops
+- **Portless repair path:** `bun run portless:repair` re-registers `t0 → 4321`, starts the HTTPS proxy, and runs `portless doctor` when `https://t0.localhost` is down but `:4321` is fine
+- Agent docs: diagnose `:4321` vs portless separately; reinstall the portless login service when the proxy does not survive reboot
+
+### 📦 Dependencies
+- `portless` 0.15.1 → 0.15.5
+- `@lydell/node-pty` 1.2.0-beta.12 → 1.2.0-beta.14
+- `ws` 8.21.0 → 8.21.2
+- `@types/node` 26.1.1 → 26.1.2
+
 ## [0.2.2] — 2026-07-13
 
 ### 🛠 Fixes

@@ -6,7 +6,7 @@ Agent install playbook: [for-coding-agents.md](./for-coding-agents.md) · skill:
 
 - HTML server: `http://127.0.0.1:4321` (bind host configurable via `MC_BIND_HOST`)
 - PTY broker: `ws://127.0.0.1:4322` (Node); the browser connects **same-origin at `/pty`**, which the Bun server proxies to the broker
-- Standard URL: **`https://t0.localhost`** via [portless](https://portless.sh/) — `install.sh` sets it up (`alias t0 4321` + proxy service). `http://127.0.0.1:4321` always works without it.
+- Standard URL: **`https://t0.localhost`** via [portless](https://portless.sh/) — `install.sh` sets it up (`alias t0 4321` + proxy service). `http://127.0.0.1:4321` always works without it. If only the HTTPS name is down: `bun run portless:repair` (and `bunx portless service install` once so it survives reboot).
 - Entry command: `bun run terminal`
 - Accent: orange (`#f97316` / `#fb923c`)
 - Themes: **system / light / dark** — `?theme=system|light|dark`, or **⌘/Ctrl+Shift+L** to cycle (stored in `localStorage`)

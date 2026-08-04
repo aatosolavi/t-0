@@ -106,7 +106,15 @@ cargo test --manifest-path terminal/launcher-ratatui/Cargo.toml
 2. **LaunchAgent not running** — `bun run terminal` for foreground logs.  
 3. **Wrong workspace root** — Settings → Workspace root, or `MC_WORKSPACE_ROOT`.  
 4. **Stale `mc` only** — re-run `bun run terminal:launcher:install` for `t0` + PATH shim.
-5. **`https://t0.localhost` dead but `:4321` fine** — `bunx portless proxy start`, then `bunx portless doctor`.
+5. **`https://t0.localhost` dead but `:4321` fine** — T-0 (LaunchAgent + Bun HTML + Node PTY) is up; only the **portless** HTTPS front on `:443` is down. From the clone:
+
+   ```bash
+   curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:4321   # expect 200
+   curl -sk -o /dev/null -w "%{http_code}\n" https://t0.localhost   # 000 / fail
+   bun run portless:repair   # alias + proxy start + doctor (may prompt for sudo for :443)
+   ```
+
+   If it dies again after reboot/logout, the portless **login service** is missing: `bunx portless service install` (sudo; once). Check with `bunx portless service status`. Fallback: always open `http://127.0.0.1:4321`.
 6. **Lag / flicker after upgrade** — hard-reload the browser tab (sessions retain; client must pick up new page assets). Do not “fix” by restarting in a loop if history replay is still in flight.
 
 ## Copy this skill into an agent host
