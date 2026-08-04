@@ -1,4 +1,4 @@
-# Publish t-0 to the public npm registry from GitHub Actions.
+# Publish @aatosolavi/t-0 to the public npm registry from GitHub Actions.
 #
 # First version is published manually (passkey in an interactive session).
 # Then link Trusted Publisher on npmjs.com → this workflow (OIDC, no secret).
@@ -76,7 +76,8 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="$(node -p "require('./package.json').version")"
-          echo "Publishing t-0@${VERSION}…"
+          NAME="$(node -p "require('./package.json').name")"
+          echo "Publishing ${NAME}@${VERSION}…"
 
           if [[ -n "${NODE_AUTH_TOKEN:-}" ]]; then
             # Token path — works for first publish before the package exists on npm.
@@ -88,4 +89,4 @@ jobs:
             npm publish --access public --provenance
           fi
 
-          echo "https://www.npmjs.com/package/t-0/v/${VERSION}"
+          echo "https://www.npmjs.com/package/${NAME}/v/${VERSION}"

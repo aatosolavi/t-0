@@ -31,7 +31,7 @@ Missing Bun → https://bun.sh · Missing rustup → https://rustup.rs (required
 ### 2. npm (preferred when Node is already set up)
 
 ```bash
-npm install -g t-0
+npm install -g @aatosolavi/t-0
 t-0 install
 ```
 

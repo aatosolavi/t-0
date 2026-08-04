@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * npm/CLI entry for T-0 (package name `t-0`).
+ * npm/CLI entry for T-0 (package `@aatosolavi/t-0`; bin `t-0`).
  *
  * The Ratatui workspace pad is still the native binary `t0` under ~/.t-0/bin.
  * This command installs and runs the browser-terminal stack.
  *
- *   npm install -g t-0
+ *   npm install -g @aatosolavi/t-0
  *   t-0 install          # build launcher + LaunchAgent + portless
  *   t-0 start            # foreground stack (or default)
  *   t-0 doctor

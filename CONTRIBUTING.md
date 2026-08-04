@@ -42,31 +42,35 @@ CI-equivalent check: `bun run check` (vendor + tsc + shell + data-dir + cargo ch
 
 ## Publishing to npm
 
-Package name: **`t-0`**. CLI bin: **`t-0`** (native pad binary remains **`t0`**).
+Package name: **`@aatosolavi/t-0`** (scoped — unscoped `t-0` is rejected by npm as too similar to `t0`).  
+CLI bin: **`t-0`**. Native pad binary: **`t0`**.
 
 macOS only (`os: ["darwin"]`). Consumers still need Bun + rustup for `t-0 install`.
 
 ### First publish (manual, once)
 
-The package must exist on the registry before [Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) can be linked. Do the first publish from a machine where you can complete npm 2FA with your **passkey** (interactive terminal or browser session):
+The package must exist on the registry before [Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) can be linked. Do the first publish from a machine where you can complete npm 2FA with your **passkey**:
 
 ```bash
-git checkout main && git pull
+git checkout main
+git pull
 bun install
-bun run prepublishOnly          # vendor + typecheck
-npm pack --dry-run              # sanity-check tarball
-npm publish --access public     # passkey prompt is fine here
+bun run prepublishOnly
+npm pack --dry-run
+npm publish --access public
 ```
 
-Confirm: https://www.npmjs.com/package/t-0
+Scoped packages need `--access public` (default is restricted).
+
+Confirm: https://www.npmjs.com/package/@aatosolavi/t-0
 
 ### Trusted Publisher (after first publish — passkey once in the browser)
 
-1. Open https://www.npmjs.com/package/t-0 → **Settings → Trusted Publisher**
+1. Open https://www.npmjs.com/package/@aatosolavi/t-0 → **Settings → Trusted Publisher**
 2. Provider: **GitHub Actions**
 3. Organization/user: `aatosolavi`
-4. Repository: `t-0`
-5. Workflow filename: **`publish-npm.yml`** (exact name under `.github/workflows/`)
+4. Repository: `t-0` (the GitHub repo name)
+5. Workflow filename: **`publish-npm.yml`**
 6. Save (approve with passkey if asked)
 
 No long-lived `NPM_TOKEN` is required once this is linked. The workflow uses OIDC + provenance.
