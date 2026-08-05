@@ -1,0 +1,25 @@
+# Only the static landing page ships to Vercel.
+node_modules
+.git
+.cursor
+.claude
+.agents
+terminal
+extension
+bin
+docs
+target
+**/target
+**/*.rs
+Cargo.lock
+Cargo.toml
+bun.lock
+package.json
+package-lock.json
+tsconfig.json
+portless.json
+install.sh
+*.md
+.env*
+.vercel
+.DS_Store

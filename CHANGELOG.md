@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0] — 2026-08-04
+
+### 🚀 npm package
+- Publish **`@aatosolavi/t-0`** on npm (`npm install -g @aatosolavi/t-0`) — scoped **`@aatosolavi/t-0`** (unscoped `t-0` blocked as too similar to existing `t0`)
+- CLI bin still `t-0`: `install` · `start` · `doctor` · `version` (native pad remains `t0`)
+- Package root resolution works for global installs (not `process.cwd()`)
+- `files` whitelist + `prepublishOnly` vendor build; macOS (`os: darwin`), Node ≥ 20
+- **GitHub Actions publish** (`.github/workflows/publish-npm.yml`) on Release — Automation token or OIDC trusted publishing (passkey-friendly)
+
+### Docs
+- Install via npm alongside curl one-liner and git clone
+- CONTRIBUTING: npm CI publish setup
+
 ## [0.2.3] — 2026-08-04
 
 ### 🛠 Fixes / ops

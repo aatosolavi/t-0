@@ -28,13 +28,20 @@ git --version && node -v && bun -v && rustup -V
 
 Missing Bun → https://bun.sh · Missing rustup → https://rustup.rs (required to build `t0`).
 
-### 2. One-liner (preferred)
+### 2. npm (preferred when Node is already set up)
+
+```bash
+npm install -g @aatosolavi/t-0
+t-0 install
+```
+
+### 3. One-liner
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/aatosolavi/t-0/main/install.sh | bash
 ```
 
-### 3. Or clone
+### 4. Or clone
 
 ```bash
 git clone https://github.com/aatosolavi/t-0.git && cd t-0
@@ -42,10 +49,11 @@ bun install && bun run terminal:install
 open https://t0.localhost   # or http://127.0.0.1:4321
 ```
 
-### 4. Verify
+### 5. Verify
 
 ```bash
 command -v t0 && t0
+command -v t-0 && t-0 doctor
 curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:4321
 curl -sk -o /dev/null -w "%{http_code}\n" https://t0.localhost   # 200 when portless is set up
 ```

@@ -40,6 +40,54 @@ cargo test --manifest-path terminal/launcher-ratatui/Cargo.toml
 
 CI-equivalent check: `bun run check` (vendor + tsc + shell + data-dir + cargo check).
 
+## Publishing to npm
+
+Package name: **`@aatosolavi/t-0`** (scoped — unscoped `t-0` is rejected by npm as too similar to `t0`).  
+CLI bin: **`t-0`**. Native pad binary: **`t0`**.
+
+macOS only (`os: ["darwin"]`). Consumers still need Bun + rustup for `t-0 install`.
+
+### First publish (manual, once)
+
+The package must exist on the registry before [Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) can be linked. Do the first publish from a machine where you can complete npm 2FA with your **passkey**:
+
+```bash
+git checkout main
+git pull
+bun install
+bun run prepublishOnly
+npm pack --dry-run
+npm publish --access public
+```
+
+Scoped packages need `--access public` (default is restricted).
+
+Confirm: https://www.npmjs.com/package/@aatosolavi/t-0
+
+### Trusted Publisher (after first publish — passkey once in the browser)
+
+1. Open https://www.npmjs.com/package/@aatosolavi/t-0 → **Settings → Trusted Publisher**
+2. Provider: **GitHub Actions**
+3. Organization/user: `aatosolavi`
+4. Repository: `t-0` (the GitHub repo name)
+5. Workflow filename: **`publish-npm.yml`**
+6. Save (approve with passkey if asked)
+
+No long-lived `NPM_TOKEN` is required once this is linked. The workflow uses OIDC + provenance.
+
+Optional bootstrap secret: granular **Automation** token as repo secret `NPM_TOKEN` — only if you want token-based CI before/without Trusted Publisher.
+
+### Later releases (GitHub Actions)
+
+1. Bump versions in lockstep: `package.json`, `terminal/launcher-ratatui/Cargo.toml` (+ lockfile), `extension/manifest.json`, `CHANGELOG.md`.
+2. Merge to `main` (CI green).
+3. Create a GitHub Release / tag `vX.Y.Z` → **Publish npm** workflow runs automatically.
+4. Or: **Actions → Publish npm → Run workflow**.
+
+Workflow: `.github/workflows/publish-npm.yml`  
+- If `NPM_TOKEN` is set → classic token publish  
+- Else → OIDC trusted publishing (`npm publish --access public --provenance`)
+
 ## Layout
 
 | Path | Role |

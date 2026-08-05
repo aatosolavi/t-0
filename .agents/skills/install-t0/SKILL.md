@@ -30,13 +30,22 @@ Confirm each exists; install only what’s missing:
 | Bun | `bun -v` | https://bun.sh |
 | rustup | `rustup -V` | https://rustup.rs (needed to **build** `t0`) |
 
-## Preferred install (one-liner)
+## Preferred install
+
+**npm** (when Node is already available):
+
+```bash
+npm install -g @aatosolavi/t-0
+t-0 install
+```
+
+**One-liner** (clones to `~/dev/t-0` or `~/t-0`):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/aatosolavi/t-0/main/install.sh | bash
 ```
 
-This clones to `~/dev/t-0` (or `~/t-0`), runs `bun install`, builds `t0`, installs LaunchAgent `com.mission-control.terminal`, and opens the UI.
+Both build `t0`, install LaunchAgent `com.mission-control.terminal`, and set up portless when Node ≥ 24.
 
 **Overrides:**
 

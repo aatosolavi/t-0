@@ -7,6 +7,7 @@ Open a tab. Get a full PTY. Pick a workspace. Launch Claude, Codex, Pi, Cursor, 
 > T-0 — countdown done. Workspaces in, agents out.
 
 [![local-first](https://img.shields.io/badge/local--first-orange)](https://github.com/aatosolavi/t-0)
+[![npm](https://img.shields.io/npm/v/@aatosolavi/t-0?color=f97316)](https://www.npmjs.com/package/@aatosolavi/t-0)
 [![MIT](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 [![macOS](https://img.shields.io/badge/platform-macOS-lightgrey)](#install-macos)
 [![CLI](https://img.shields.io/badge/CLI-t0-f97316)](#t-0-keys-t0)
@@ -24,6 +25,17 @@ Open a tab. Get a full PTY. Pick a workspace. Launch Claude, Codex, Pi, Cursor, 
 <p align="center"><sub>T-0 launcher (<code>t0</code>)</sub></p>
 
 ## Install (macOS)
+
+### npm (global)
+
+```bash
+npm install -g @aatosolavi/t-0
+t-0 install                 # build t0 + LaunchAgent + portless
+open https://t0.localhost   # or http://127.0.0.1:4321
+t-0 doctor                  # stack health
+```
+
+Package is **`@aatosolavi/t-0`** (unscoped `t-0` is blocked by npm as too similar to unrelated `t0`). The **stack CLI** bin is still `t-0` (install / start / doctor). The Ratatui workspace pad is **`t0`** (legacy `mc`).
 
 ### One-liner
 

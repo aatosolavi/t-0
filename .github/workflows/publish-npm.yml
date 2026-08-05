@@ -1,0 +1,92 @@
+# Publish @aatosolavi/t-0 to the public npm registry from GitHub Actions.
+#
+# First version is published manually (passkey in an interactive session).
+# Then link Trusted Publisher on npmjs.com → this workflow (OIDC, no secret).
+#
+# Preferred: npm Trusted Publishing (OIDC) + provenance.
+# Optional fallback: repository secret NPM_TOKEN (granular *Automation* token).
+#
+# Triggers: GitHub Release published, or manual workflow_dispatch.
+
+name: Publish npm
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Git tag to publish (e.g. v0.3.0). Leave empty for current ref."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-npm-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: npm publish
+    runs-on: ubuntu-latest
+    # OIDC for npm trusted publishing (no OTP; passkey only when configuring npm).
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.event.release.tag_name || github.sha }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          # npm 11+ required for OIDC trusted publishing
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+
+      - name: Ensure recent npm (OIDC)
+        run: npm install -g npm@latest
+
+      - name: Install deps
+        run: bun install --frozen-lockfile
+
+      - name: Vendor + typecheck (prepublish)
+        run: bun run prepublishOnly
+
+      - name: Verify pack contents
+        run: |
+          npm pack --dry-run
+          test -f terminal/dist/vendor.js
+          test -f bin/t-0.mjs
+
+      - name: Publish to npm
+        env:
+          # Granular *Automation* token (passkey only when creating the token in the browser).
+          # Not required once Trusted Publishing (OIDC) is linked on the package.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          NAME="$(node -p "require('./package.json').name")"
+          echo "Publishing ${NAME}@${VERSION}…"
+
+          if [[ -n "${NODE_AUTH_TOKEN:-}" ]]; then
+            # Token path — works for first publish before the package exists on npm.
+            # Automation tokens do not need OTP/passkey at publish time.
+            npm publish --access public
+          else
+            # OIDC trusted publishing — no secret; package must already exist and
+            # have this workflow listed as Trusted Publisher on npmjs.com.
+            npm publish --access public --provenance
+          fi
+
+          echo "https://www.npmjs.com/package/${NAME}/v/${VERSION}"
