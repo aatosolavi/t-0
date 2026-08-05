@@ -77,16 +77,38 @@ jobs:
           set -euo pipefail
           VERSION="$(node -p "require('./package.json').version")"
           NAME="$(node -p "require('./package.json').name")"
+          URL="https://www.npmjs.com/package/${NAME}/v/${VERSION}"
+
+          # Idempotent: re-running a release (or tagging after a manual first publish)
+          # must not fail the workflow.
+          if npm view "${NAME}@${VERSION}" version >/dev/null 2>&1; then
+            echo "Already published: ${NAME}@${VERSION}"
+            echo "Skip npm publish. ${URL}"
+            exit 0
+          fi
+
           echo "Publishing ${NAME}@${VERSION}…"
 
           if [[ -n "${NODE_AUTH_TOKEN:-}" ]]; then
-            # Token path — works for first publish before the package exists on npm.
-            # Automation tokens do not need OTP/passkey at publish time.
+            # Token path — Automation tokens do not need OTP/passkey at publish time.
             npm publish --access public
           else
-            # OIDC trusted publishing — no secret; package must already exist and
-            # have this workflow listed as Trusted Publisher on npmjs.com.
+            # OIDC trusted publishing — configure on npmjs.com:
+            #   Package → Settings → Trusted Publisher → GitHub Actions
+            #   repo aatosolavi/t-0, workflow publish-npm.yml
+            set +e
             npm publish --access public --provenance
+            status=$?
+            set -e
+            if [[ $status -ne 0 ]]; then
+              echo "::error::npm publish failed (exit ${status})."
+              echo "This version is not on the registry yet, and CI is not authenticated."
+              echo "Fix one of:"
+              echo "  1) npmjs.com → @aatosolavi/t-0 → Trusted Publisher → GitHub Actions"
+              echo "     owner=aatosolavi repo=t-0 workflow=publish-npm.yml"
+              echo "  2) Repo secret NPM_TOKEN = granular Automation token (read/write)"
+              exit "$status"
+            fi
           fi
 
-          echo "https://www.npmjs.com/package/${NAME}/v/${VERSION}"
+          echo "Published ${URL}"
