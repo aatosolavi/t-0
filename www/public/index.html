@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>T-0 — local browser terminal + agent launcher</title>
+    <meta
+      name="description"
+      content="T-0 is a real local PTY in a browser tab, plus a Ratatui launcher for workspaces and coding agents. macOS, local-first."
+    />
+    <meta property="og:title" content="T-0" />
+    <meta
+      property="og:description"
+      content="Browser terminal + agent launcher. Real local PTY. Install on macOS."
+    />
+    <meta
+      property="og:image"
+      content="https://raw.githubusercontent.com/aatosolavi/t-0/main/docs/assets/t-0-social.png"
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230a0a0a'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='ui-monospace,monospace' font-size='14' fill='%23f97316'%3ET0%3C/text%3E%3C/svg%3E"
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0a0a0a;
+        --panel: #141414;
+        --text: #f5f5f5;
+        --muted: #a3a3a3;
+        --orange: #f97316;
+        --orange-dim: #c2410c;
+        --border: #262626;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          Segoe UI,
+          Roboto,
+          Helvetica,
+          Arial,
+          sans-serif;
+        background:
+          radial-gradient(1200px 600px at 50% -10%, #1c1917 0%, transparent 55%),
+          var(--bg);
+        color: var(--text);
+        line-height: 1.5;
+      }
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 4rem 1.25rem 5rem;
+      }
+      .badge {
+        display: inline-block;
+        font-size: 0.75rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--orange);
+        border: 1px solid var(--orange-dim);
+        border-radius: 999px;
+        padding: 0.2rem 0.65rem;
+        margin-bottom: 1rem;
+      }
+      h1 {
+        font-size: clamp(2rem, 5vw, 2.75rem);
+        line-height: 1.1;
+        margin: 0 0 0.75rem;
+        letter-spacing: -0.03em;
+      }
+      h1 span {
+        color: var(--orange);
+      }
+      .lead {
+        color: var(--muted);
+        font-size: 1.125rem;
+        margin: 0 0 1.75rem;
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-bottom: 2rem;
+      }
+      a.btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        text-decoration: none;
+        border-radius: 0.5rem;
+        padding: 0.65rem 1rem;
+        font-weight: 600;
+        font-size: 0.95rem;
+      }
+      a.btn-primary {
+        background: var(--orange);
+        color: #111;
+      }
+      a.btn-primary:hover {
+        filter: brightness(1.05);
+      }
+      a.btn-ghost {
+        background: transparent;
+        color: var(--text);
+        border: 1px solid var(--border);
+      }
+      a.btn-ghost:hover {
+        border-color: #404040;
+      }
+      pre {
+        margin: 0 0 1.5rem;
+        padding: 1rem 1.1rem;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 0.75rem;
+        overflow-x: auto;
+        font-size: 0.875rem;
+        line-height: 1.55;
+      }
+      code {
+        font-family:
+          ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      }
+      .note {
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      .note a {
+        color: var(--orange);
+      }
+      footer {
+        margin-top: 3rem;
+        padding-top: 1.25rem;
+        border-top: 1px solid var(--border);
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+      footer a {
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="badge">local-first · macOS</div>
+      <h1>T-0 — <span>countdown done</span></h1>
+      <p class="lead">
+        A real local terminal in a browser tab, plus a launcher for workspaces
+        and coding agents. Not a cloud IDE — your machine, your PTY.
+      </p>
+
+      <div class="actions">
+        <a class="btn btn-primary" href="https://github.com/aatosolavi/t-0"
+          >GitHub</a
+        >
+        <a
+          class="btn btn-ghost"
+          href="https://www.npmjs.com/package/@aatosolavi/t-0"
+          >npm @aatosolavi/t-0</a
+        >
+      </div>
+
+      <pre><code># install
+npm install -g @aatosolavi/t-0
+t-0 install
+
+# or one-liner
+curl -fsSL https://raw.githubusercontent.com/aatosolavi/t-0/main/install.sh | bash
+
+# open
+https://t0.localhost
+# fallback
+http://127.0.0.1:4321</code></pre>
+
+      <p class="note">
+        Stack CLI is <code>t-0</code>; workspace pad is <code>t0</code>. Product
+        runs on your Mac via LaunchAgent — this site is only the landing page.
+      </p>
+
+      <footer>
+        <a href="https://github.com/aatosolavi/t-0">aatosolavi/t-0</a>
+        · MIT
+      </footer>
+    </main>
+  </body>
+</html>
