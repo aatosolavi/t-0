@@ -19,175 +19,766 @@
     />
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230a0a0a'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='ui-monospace,monospace' font-size='14' fill='%23f97316'%3ET0%3C/text%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23141414'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='ui-monospace,monospace' font-size='14' fill='%23f97316'%3ET0%3C/text%3E%3C/svg%3E"
     />
     <style>
       :root {
         color-scheme: dark;
-        --bg: #0a0a0a;
-        --panel: #141414;
-        --text: #f5f5f5;
+        --bg: #141414;
+        --text: #e5e5e5;
         --muted: #a3a3a3;
-        --orange: #f97316;
-        --orange-dim: #c2410c;
-        --border: #262626;
+        --dim: #737373;
+        --soft: #a3a3a3;
+        --surface: #262626;
+        --border: #525252;
+        --accent: #f97316;
+        --accent-on: #171717;
+        --warn: #b47800;
+        --key: #ffffff;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          color-scheme: light;
+          --bg: #fafafa;
+          --text: #171717;
+          --muted: #52525b;
+          --dim: #71717a;
+          --soft: #3f3f46;
+          --surface: #ececec;
+          --border: #a1a1aa;
+          --accent: #ea580c;
+          --accent-on: #171717;
+          --warn: #a16207;
+          --key: #18181b;
+        }
       }
       * {
         box-sizing: border-box;
       }
+      html {
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
       body {
         margin: 0;
-        min-height: 100vh;
-        font-family:
-          ui-sans-serif,
-          system-ui,
-          -apple-system,
-          Segoe UI,
-          Roboto,
-          Helvetica,
-          Arial,
-          sans-serif;
-        background:
-          radial-gradient(1200px 600px at 50% -10%, #1c1917 0%, transparent 55%),
-          var(--bg);
+        min-height: 100dvh;
+        background: var(--bg);
         color: var(--text);
-        line-height: 1.5;
+        font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
+          Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 13px;
+        line-height: 1.2;
+        font-variant-ligatures: none;
+        font-kerning: none;
       }
-      main {
-        max-width: 720px;
-        margin: 0 auto;
-        padding: 4rem 1.25rem 5rem;
+      .screen {
+        min-height: 100dvh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1.5rem;
+        padding: 1.5rem 1rem 2rem;
+        padding-left: max(1rem, env(safe-area-inset-left));
+        padding-right: max(1rem, env(safe-area-inset-right));
+        padding-bottom: max(2rem, env(safe-area-inset-bottom));
       }
-      .badge {
-        display: inline-block;
-        font-size: 0.75rem;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        color: var(--orange);
-        border: 1px solid var(--orange-dim);
-        border-radius: 999px;
-        padding: 0.2rem 0.65rem;
-        margin-bottom: 1rem;
+      .pad {
+        position: relative;
+        width: min(92ch, 100%);
+        min-height: 22em;
+        padding: 1.15em 3ch 0.85em;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--bg);
       }
-      h1 {
-        font-size: clamp(2rem, 5vw, 2.75rem);
-        line-height: 1.1;
-        margin: 0 0 0.75rem;
-        letter-spacing: -0.03em;
+      .pad-label {
+        position: absolute;
+        top: 0;
+        left: 2ch;
+        transform: translateY(-50%);
+        background: var(--bg);
+        padding: 0 0.6ch;
+        color: var(--text);
       }
-      h1 span {
-        color: var(--orange);
-      }
-      .lead {
+      .title-line {
         color: var(--muted);
-        font-size: 1.125rem;
-        margin: 0 0 1.75rem;
+        text-wrap: balance;
+        margin: 0 0 0.15em;
       }
-      .actions {
+      .title-line em {
+        color: var(--accent);
+        font-style: normal;
+        font-weight: 700;
+      }
+      .chips {
         display: flex;
         flex-wrap: wrap;
-        gap: 0.75rem;
-        margin-bottom: 2rem;
+        gap: 0.15em 0.55ch;
+        margin: 0 0 0.15em;
       }
-      a.btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.4rem;
+      .chip {
+        color: var(--soft);
+        padding: 0 0.45ch;
+        border-radius: 2px;
+      }
+      .chip.on {
+        background: var(--accent);
+        color: var(--accent-on);
+        font-weight: 700;
+      }
+      .filter {
+        color: var(--dim);
+        margin: 0 0 0.35em;
+        display: flex;
+        justify-content: space-between;
+        gap: 1ch;
+      }
+      .filter .count {
+        font-variant-numeric: tabular-nums;
+      }
+      .list {
+        min-height: 14em;
+        display: flex;
+        flex-direction: column;
+        margin: 0 -3ch;
+      }
+      .section {
+        color: var(--dim);
+        padding: 0.05em 3ch;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 2ch minmax(8ch, 16ch) 12ch 7ch minmax(8ch, 1fr);
+        column-gap: 2ch;
+        align-items: baseline;
         text-decoration: none;
-        border-radius: 0.5rem;
-        padding: 0.65rem 1rem;
-        font-weight: 600;
-        font-size: 0.95rem;
+        color: var(--soft);
+        outline: none;
+        padding: 0.05em 3ch;
       }
-      a.btn-primary {
-        background: var(--orange);
-        color: #111;
+      .row:hover,
+      .row:focus-visible {
+        background: var(--surface);
       }
-      a.btn-primary:hover {
-        filter: brightness(1.05);
-      }
-      a.btn-ghost {
-        background: transparent;
+      .row.on {
+        background: var(--surface);
         color: var(--text);
-        border: 1px solid var(--border);
+        font-weight: 700;
       }
-      a.btn-ghost:hover {
-        border-color: #404040;
+      .bar {
+        color: transparent;
       }
-      pre {
-        margin: 0 0 1.5rem;
-        padding: 1rem 1.1rem;
-        background: var(--panel);
+      .row.on .bar {
+        color: var(--accent);
+        font-weight: 400;
+      }
+      .col-name,
+      .col-meta,
+      .col-kind,
+      .col-path {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .col-meta,
+      .col-kind,
+      .col-path {
+        color: var(--dim);
+        font-weight: 400;
+      }
+      .row.on .col-kind {
+        color: var(--text);
+      }
+      .empty {
+        color: var(--dim);
+        min-height: 14em;
+        display: grid;
+        place-content: center;
+        text-align: center;
+        gap: 0.2em;
+      }
+      .status {
+        color: var(--dim);
+        min-height: 1.2em;
+        margin: 0.55em 0 0.15em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .status.ramp-1 {
+        color: var(--muted);
+      }
+      .status.ramp-2 {
+        color: var(--text);
+      }
+      .status.flash {
+        color: var(--accent);
+      }
+      .keys {
+        color: var(--dim);
+      }
+      .keys kbd {
+        font: inherit;
+        color: var(--key);
+      }
+      .keys .more {
+        margin-top: 0.1em;
+      }
+      .install {
+        width: min(92ch, 100%);
+        scroll-margin-top: 1.5rem;
+      }
+      .install pre {
+        margin: 0;
+        padding: 0.9em 1.1em;
         border: 1px solid var(--border);
-        border-radius: 0.75rem;
+        border-radius: 6px;
+        background: var(--bg);
         overflow-x: auto;
-        font-size: 0.875rem;
         line-height: 1.55;
       }
-      code {
-        font-family:
-          ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      .install .hash {
+        color: var(--dim);
       }
       .note {
         color: var(--muted);
-        font-size: 0.9rem;
+        font-size: 0.92em;
+        margin: 0.85em 0 0;
+        text-wrap: pretty;
       }
       .note a {
-        color: var(--orange);
+        color: var(--accent);
+        text-decoration: none;
       }
-      footer {
-        margin-top: 3rem;
-        padding-top: 1.25rem;
-        border-top: 1px solid var(--border);
-        color: var(--muted);
-        font-size: 0.85rem;
+      .note a:hover {
+        text-decoration: underline;
       }
-      footer a {
+      .note code {
+        font: inherit;
+      }
+      .help {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: color-mix(in srgb, var(--bg) 72%, transparent);
+        z-index: 10;
+        padding: 1rem;
+      }
+      .help[hidden] {
+        display: none;
+      }
+      .help-pad {
+        min-height: 0;
+        width: min(72ch, 100%);
+        border-color: var(--accent);
+        padding-top: 1.35em;
+        padding-bottom: 1.1em;
+      }
+      .help-list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 0.15em;
+      }
+      .help-list li {
+        display: grid;
+        grid-template-columns: 12ch 1fr;
+        column-gap: 1.5ch;
+      }
+      .help-list kbd {
+        font: inherit;
+        color: var(--key);
+      }
+      .help-list span {
         color: var(--muted);
+      }
+      @media (max-width: 720px) {
+        .row {
+          grid-template-columns: 2ch minmax(8ch, 1fr) 10ch 6ch;
+        }
+        .col-path {
+          display: none;
+        }
+      }
+      @media (max-width: 520px) {
+        body {
+          font-size: 12px;
+        }
+        .install pre {
+          white-space: pre-wrap;
+          overflow-x: visible;
+        }
+        .row {
+          grid-template-columns: 2ch minmax(8ch, 1fr) 6ch;
+        }
+        .col-meta {
+          display: none;
+        }
+        .pad {
+          padding-left: 1.5ch;
+          padding-right: 1.5ch;
+        }
+        .list {
+          margin: 0 -1.5ch;
+        }
+        .section {
+          padding-left: 1.5ch;
+          padding-right: 1.5ch;
+        }
+        .row {
+          padding-left: 1.5ch;
+          padding-right: 1.5ch;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
       }
     </style>
   </head>
   <body>
-    <main>
-      <div class="badge">local-first · macOS</div>
-      <h1>T-0 — <span>countdown done</span></h1>
-      <p class="lead">
-        A real local terminal in a browser tab, plus a launcher for workspaces
-        and coding agents. Not a cloud IDE — your machine, your PTY.
-      </p>
+    <div class="screen">
+      <section class="pad" id="pad" aria-label="T-0">
+        <div class="pad-label">T-0</div>
+        <p class="title-line" id="title-line">
+          Launch <em id="verb">install</em> in a workspace
+        </p>
+        <div class="chips" id="chips" aria-hidden="true"></div>
+        <div class="filter" id="filter">
+          <span id="filter-text">/ type to filter</span>
+          <span class="count" id="filter-count"></span>
+        </div>
+        <div class="list" id="list"></div>
+        <div class="status" id="status" aria-live="polite"></div>
+        <div class="keys">
+          <div>
+            <kbd>enter</kbd> open
+            <kbd>i</kbd> install
+            <kbd>g</kbd> github
+            <kbd>n</kbd> npm
+            <kbd>?</kbd> help
+          </div>
+          <div class="more">type filter · 1-9 chip · esc clear</div>
+        </div>
+      </section>
 
-      <div class="actions">
-        <a class="btn btn-primary" href="https://github.com/aatosolavi/t-0"
-          >GitHub</a
-        >
-        <a
-          class="btn btn-ghost"
-          href="https://www.npmjs.com/package/@aatosolavi/t-0"
-          >npm @aatosolavi/t-0</a
-        >
-      </div>
-
-      <pre><code># install
+      <section class="install" id="install">
+        <pre><span class="hash"># install</span>
 npm install -g @aatosolavi/t-0
 t-0 install
 
-# or one-liner
+<span class="hash"># or one-liner</span>
 curl -fsSL https://raw.githubusercontent.com/aatosolavi/t-0/main/install.sh | bash
 
-# open
+<span class="hash"># open</span>
 https://t0.localhost
-# fallback
-http://127.0.0.1:4321</code></pre>
+<span class="hash"># fallback</span>
+http://127.0.0.1:4321</pre>
+        <p class="note">
+          Stack CLI is <code>t-0</code>; workspace pad is <code>t0</code>.
+          Product runs on your Mac via LaunchAgent —
+          <a href="https://github.com/aatosolavi/t-0">aatosolavi/t-0</a>
+          · MIT
+        </p>
+      </section>
+    </div>
 
-      <p class="note">
-        Stack CLI is <code>t-0</code>; workspace pad is <code>t0</code>. Product
-        runs on your Mac via LaunchAgent — this site is only the landing page.
-      </p>
+    <div class="help" id="help" hidden>
+      <section class="pad help-pad" role="dialog" aria-modal="true" aria-labelledby="help-label">
+        <div class="pad-label" id="help-label">T-0 · Keys</div>
+        <ul class="help-list">
+          <li><kbd>enter</kbd><span>open selected</span></li>
+          <li><kbd>↑↓ / j k</kbd><span>move (j k when filter empty)</span></li>
+          <li><kbd>i</kbd><span>install</span></li>
+          <li><kbd>g</kbd><span>github</span></li>
+          <li><kbd>n</kbd><span>npm</span></li>
+          <li><kbd>type</kbd><span>filter by name or path · esc clears</span></li>
+          <li><kbd>1-9</kbd><span>highlight agent chip</span></li>
+          <li><kbd>esc / ?</kbd><span>close this help</span></li>
+        </ul>
+      </section>
+    </div>
 
-      <footer>
-        <a href="https://github.com/aatosolavi/t-0">aatosolavi/t-0</a>
-        · MIT
-      </footer>
-    </main>
+    <script>
+      const AGENTS = [
+        "Grok",
+        "Codex",
+        "Pi",
+        "Cursor",
+        "Claude",
+        "Amp",
+        "Devin",
+        "Droid",
+        "Shell",
+      ];
+      const ROWS = [
+        {
+          id: "install",
+          section: "★",
+          name: "install",
+          star: true,
+          meta: "main",
+          kind: "curl",
+          path: "npm i -g @aatosolavi/t-0",
+          href: "#install",
+        },
+        {
+          id: "github",
+          section: "recent",
+          name: "github",
+          meta: "main",
+          kind: "git",
+          path: "github.com/aatosolavi/t-0",
+          href: "https://github.com/aatosolavi/t-0",
+        },
+        {
+          id: "npm",
+          section: "recent",
+          name: "npm",
+          meta: "latest",
+          kind: "pkg",
+          path: "npmjs.com/package/@aatosolavi/t-0",
+          href: "https://www.npmjs.com/package/@aatosolavi/t-0",
+        },
+        {
+          id: "t0.localhost",
+          section: "last",
+          name: "t0.localhost",
+          meta: "local",
+          kind: "pad",
+          path: "https://t0.localhost",
+          href: "https://t0.localhost",
+        },
+        {
+          id: "readme",
+          section: "root",
+          name: "readme",
+          meta: "docs",
+          kind: "md",
+          path: "github.com/aatosolavi/t-0#readme",
+          href: "https://github.com/aatosolavi/t-0#readme",
+        },
+      ];
+      const SECTION_LABEL = {
+        "★": "─ ★ favorites",
+        recent: "─ recent",
+        last: "─ last",
+        root: "─ root",
+      };
+      const TIPS = [
+        ". resumes your last session",
+        "space favorites a workspace",
+        "1-9 picks an agent without leaving the list",
+        "n creates a project · s opens settings",
+        "? shows the full keymap",
+        "type to filter by name or path",
+        "MC_DEMO=1 t0 — screenshot-friendly fake workspaces",
+        "hover a missing agent chip to install",
+        "theme: Settings → UI theme (auto / light / dark)",
+        "shift-enter adds a newline in New Project notes",
+      ];
+      const SHORTCUTS = { i: "install", g: "github", n: "npm" };
+
+      const reduceMotion = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
+
+      const els = {
+        chips: document.getElementById("chips"),
+        list: document.getElementById("list"),
+        verb: document.getElementById("verb"),
+        filterText: document.getElementById("filter-text"),
+        filterCount: document.getElementById("filter-count"),
+        status: document.getElementById("status"),
+        help: document.getElementById("help"),
+      };
+
+      const state = {
+        filter: "",
+        selected: "install",
+        chip: 4,
+        help: false,
+        tip: 0,
+        flashUntil: 0,
+        rampTimer: 0,
+      };
+
+      function visibleRows() {
+        const q = state.filter.toLowerCase();
+        if (!q) return ROWS;
+        return ROWS.filter((row) =>
+          [row.name, row.path, row.kind, row.meta].some((part) =>
+            part.toLowerCase().includes(q),
+          ),
+        );
+      }
+
+      function sectionLabel(badge) {
+        return SECTION_LABEL[badge] || `─ ${badge}`;
+      }
+
+      function renderChips() {
+        els.chips.replaceChildren(
+          ...AGENTS.map((name, index) => {
+            const chip = document.createElement("span");
+            chip.className = "chip" + (index === state.chip ? " on" : "");
+            chip.textContent = `${index + 1} ${name}`;
+            chip.addEventListener("click", () => {
+              state.chip = index;
+              renderChips();
+            });
+            return chip;
+          }),
+        );
+      }
+
+      function renderFilter(rows) {
+        if (!state.filter) {
+          els.filterText.textContent = "/ type to filter";
+          els.filterCount.textContent = "";
+          return;
+        }
+        els.filterText.textContent = `/${state.filter}▌`;
+        els.filterCount.textContent = `${rows.length}/${ROWS.length}`;
+      }
+
+      function renderList(rows) {
+        const selected = rows.find((row) => row.id === state.selected) || rows[0];
+        if (selected) state.selected = selected.id;
+        els.verb.textContent = selected ? selected.name : "t0";
+
+        if (rows.length === 0) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.innerHTML = "<div>no matches</div><div>esc to clear</div>";
+          els.list.replaceChildren(empty);
+          return;
+        }
+
+        const nodes = [];
+        let prev = null;
+        const filtering = Boolean(state.filter);
+        for (const row of rows) {
+          if (!filtering && row.section !== prev) {
+            const label = document.createElement("div");
+            label.className = "section";
+            label.textContent = sectionLabel(row.section);
+            nodes.push(label);
+            prev = row.section;
+          }
+          const a = document.createElement("a");
+          a.className = "row" + (row.id === state.selected ? " on" : "");
+          a.href = row.href;
+          a.dataset.id = row.id;
+          if (!row.href.startsWith("#")) a.rel = "noreferrer";
+          a.innerHTML =
+            `<span class="bar">▌</span>` +
+            `<span class="col-name">${row.star ? "★ " : ""}${row.name}</span>` +
+            `<span class="col-meta">${row.meta}</span>` +
+            `<span class="col-kind">${row.kind}</span>` +
+            `<span class="col-path">${row.path}</span>`;
+          a.addEventListener("mouseenter", () => select(row.id));
+          a.addEventListener("focus", () => select(row.id));
+          a.addEventListener("click", (event) => {
+            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+              return;
+            }
+            event.preventDefault();
+            openRow(row);
+          });
+          nodes.push(a);
+        }
+        els.list.replaceChildren(...nodes);
+      }
+
+      function render() {
+        const rows = visibleRows();
+        renderChips();
+        renderFilter(rows);
+        renderList(rows);
+      }
+
+      function select(id) {
+        if (state.selected === id) return;
+        state.selected = id;
+        render();
+      }
+
+      function move(delta) {
+        const rows = visibleRows();
+        if (rows.length === 0) return;
+        const index = Math.max(
+          0,
+          rows.findIndex((row) => row.id === state.selected),
+        );
+        const next = rows[(index + delta + rows.length) % rows.length];
+        state.selected = next.id;
+        render();
+        const el = els.list.querySelector(`[data-id="${next.id}"]`);
+        el?.focus({ preventScroll: true });
+        el?.scrollIntoView({ block: "nearest" });
+      }
+
+      function rowById(id) {
+        return ROWS.find((row) => row.id === id);
+      }
+
+      function openRow(row) {
+        if (!row) return;
+        state.selected = row.id;
+        render();
+        if (row.href.startsWith("#")) {
+          flash(`opened ${row.name}`);
+          document.querySelector(row.href)?.scrollIntoView({
+            behavior: reduceMotion ? "auto" : "smooth",
+          });
+          history.replaceState(null, "", row.href);
+          return;
+        }
+        window.location.href = row.href;
+      }
+
+      function openSelected() {
+        const rows = visibleRows();
+        const row =
+          rows.find((item) => item.id === state.selected) || rows[0];
+        openRow(row);
+      }
+
+      function ramp(kind) {
+        window.clearTimeout(state.rampTimer);
+        els.status.className = "status";
+        if (kind === "flash") els.status.classList.add("flash");
+        if (reduceMotion) return;
+        let frame = 0;
+        const tick = () => {
+          frame += 1;
+          els.status.classList.remove("ramp-1", "ramp-2");
+          if (frame === 1) els.status.classList.add("ramp-1");
+          if (frame >= 2) els.status.classList.add("ramp-2");
+          if (frame < 2) {
+            state.rampTimer = window.setTimeout(tick, 40);
+          }
+        };
+        state.rampTimer = window.setTimeout(tick, 40);
+      }
+
+      function showTip() {
+        if (Date.now() < state.flashUntil) return;
+        els.status.textContent = TIPS[state.tip % TIPS.length];
+        ramp("tip");
+      }
+
+      function flash(text) {
+        state.flashUntil = Date.now() + 1800;
+        els.status.textContent = text;
+        ramp("flash");
+      }
+
+      function setHelp(open) {
+        state.help = open;
+        els.help.hidden = !open;
+      }
+
+      function onKey(event) {
+        if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+        if (state.help) {
+          if (event.key === "Escape" || event.key === "?") {
+            event.preventDefault();
+            setHelp(false);
+          }
+          return;
+        }
+
+        if (event.key === "Escape") {
+          if (state.filter) {
+            event.preventDefault();
+            state.filter = "";
+            render();
+          }
+          return;
+        }
+
+        if (event.key === "?") {
+          event.preventDefault();
+          setHelp(true);
+          return;
+        }
+
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          move(1);
+          return;
+        }
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          move(-1);
+          return;
+        }
+        if (event.key === "Enter") {
+          event.preventDefault();
+          openSelected();
+          return;
+        }
+
+        if (event.key >= "1" && event.key <= "9") {
+          const index = Number(event.key) - 1;
+          if (index < AGENTS.length) {
+            event.preventDefault();
+            state.chip = index;
+            renderChips();
+          }
+          return;
+        }
+
+        if (event.key === "Backspace" && state.filter) {
+          event.preventDefault();
+          state.filter = state.filter.slice(0, -1);
+          render();
+          return;
+        }
+
+        if (!state.filter && event.key === "j") {
+          event.preventDefault();
+          move(1);
+          return;
+        }
+        if (!state.filter && event.key === "k") {
+          event.preventDefault();
+          move(-1);
+          return;
+        }
+
+        if (!state.filter && SHORTCUTS[event.key]) {
+          event.preventDefault();
+          openRow(rowById(SHORTCUTS[event.key]));
+          return;
+        }
+
+        if (event.key.length === 1 && !event.repeat) {
+          event.preventDefault();
+          state.filter += event.key;
+          render();
+        }
+      }
+
+      document.addEventListener("keydown", onKey);
+      els.help.addEventListener("click", (event) => {
+        if (event.target === els.help) setHelp(false);
+      });
+
+      render();
+      showTip();
+      window.setInterval(() => {
+        if (Date.now() < state.flashUntil) return;
+        state.tip += 1;
+        showTip();
+      }, 30000);
+    </script>
   </body>
 </html>

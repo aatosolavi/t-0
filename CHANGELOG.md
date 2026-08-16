@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Site
+- Public landing page is the `t0` pad (mono chrome, agent chips, list rows, keys) instead of a marketing brochure
+
 ## [0.3.0] — 2026-08-04
 
 ### 🚀 npm package
