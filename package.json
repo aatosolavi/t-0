@@ -42,6 +42,7 @@
     "portless:repair": "bunx portless alias t0 4321 && bunx portless proxy start && bunx portless doctor",
     "start": "bun run terminal",
     "dev": "bun run terminal",
+    "site:dev": "bun run terminal/build-agentation.mjs && python3 -m http.server 5173 --directory www/public",
     "install:service": "./terminal/install-launch-agent.sh",
     "typecheck": "tsc -p tsconfig.json",
     "check:shell": "bash -n install.sh && bash -n terminal/install-launch-agent.sh",
@@ -67,7 +68,7 @@
     "macos",
     "local-first"
   ],
-  "homepage": "https://github.com/aatosolavi/t-0#readme",
+  "homepage": "https://t-0.dev",
   "bugs": {
     "url": "https://github.com/aatosolavi/t-0/issues"
   },
@@ -89,6 +90,9 @@
   "devDependencies": {
     "@types/bun": "^1.3.14",
     "@types/node": "^26.1.2",
+    "agentation": "^3.0.2",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "typescript": "^7.0.2"
   }
 }

@@ -4,6 +4,7 @@
 # production / build
 /build
 /terminal/dist
+/www/public/agentation.bundle.js
 target/
 
 # misc

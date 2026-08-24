@@ -13,6 +13,7 @@ Also available as a skill: [`.agents/skills/install-t0/SKILL.md`](../.agents/ski
 | Launcher CLI | `t0` → `~/.t-0/bin/t0` |
 | State | `~/.t-0/` |
 | Source | https://github.com/aatosolavi/t-0 |
+| Public site | https://t-0.dev |
 
 **Local shell only.** Default bind is localhost. Security notes: [SECURITY.md](../SECURITY.md).
 

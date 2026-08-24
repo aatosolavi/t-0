@@ -4,6 +4,8 @@
 
 ### Site
 - Public landing page is the `t0` pad (mono chrome, agent chips, list rows, keys) instead of a marketing brochure
+- Canonical URL / homepage is https://t-0.dev
+- Agentation toolbar and MCP are local-dev only on the website (`bun run site:dev`); not on production t-0.dev or the product terminal
 
 ## [0.3.0] — 2026-08-04
 
