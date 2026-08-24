@@ -13,6 +13,8 @@
       property="og:description"
       content="Browser terminal + agent launcher. Real local PTY. Install on macOS."
     />
+    <link rel="canonical" href="https://t-0.dev/" />
+    <meta property="og:url" content="https://t-0.dev/" />
     <meta
       property="og:image"
       content="https://raw.githubusercontent.com/aatosolavi/t-0/main/docs/assets/t-0-social.png"
@@ -83,9 +85,13 @@
         padding-right: max(1rem, env(safe-area-inset-right));
         padding-bottom: max(2rem, env(safe-area-inset-bottom));
       }
+      .pad,
+      .install {
+        box-sizing: border-box;
+        width: min(92ch, 100%);
+      }
       .pad {
         position: relative;
-        width: min(92ch, 100%);
         min-height: 22em;
         padding: 1.15em 3ch 0.85em;
         border: 1px solid var(--border);
@@ -226,7 +232,6 @@
         margin-top: 0.1em;
       }
       .install {
-        width: min(92ch, 100%);
         scroll-margin-top: 1.5rem;
       }
       .install pre {
@@ -379,8 +384,7 @@ https://t0.localhost
 <span class="hash"># fallback</span>
 http://127.0.0.1:4321</pre>
         <p class="note">
-          Stack CLI is <code>t-0</code>; workspace pad is <code>t0</code>.
-          Product runs on your Mac via LaunchAgent —
+          CLI <code>t-0</code> · pad <code>t0</code> ·
           <a href="https://github.com/aatosolavi/t-0">aatosolavi/t-0</a>
           · MIT
         </p>
@@ -780,5 +784,6 @@ http://127.0.0.1:4321</pre>
         showTip();
       }, 30000);
     </script>
+    <script type="module" src="/agentation.js"></script>
   </body>
 </html>

@@ -23,3 +23,4 @@ install.sh
 .env*
 .vercel
 .DS_Store
+www/public/agentation.bundle.js

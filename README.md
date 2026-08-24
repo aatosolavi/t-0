@@ -12,7 +12,7 @@ Open a tab. Get a full PTY. Pick a workspace. Launch Claude, Codex, Pi, Cursor, 
 [![macOS](https://img.shields.io/badge/platform-macOS-lightgrey)](#install-macos)
 [![CLI](https://img.shields.io/badge/CLI-t0-f97316)](#t-0-keys-t0)
 
-**Repo:** [aatosolavi/t-0](https://github.com/aatosolavi/t-0) · **CLI:** `t0` (legacy alias `mc`) · **State:** `~/.t-0`
+**Site:** [t-0.dev](https://t-0.dev) · **Repo:** [aatosolavi/t-0](https://github.com/aatosolavi/t-0) · **CLI:** `t0` (legacy alias `mc`) · **State:** `~/.t-0`
 
 <p align="center">
   <img
