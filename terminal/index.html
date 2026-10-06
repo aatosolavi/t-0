@@ -570,9 +570,13 @@
       };
     }
 
+    // Keystrokes go as binary frames so the broker never mistakes typed or
+    // pasted JSON for a control message; start/resize stay text JSON.
+    const inputEncoder = new TextEncoder();
+
     function insertPtyText(text) {
       if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(text);
+        ws.send(inputEncoder.encode(text));
       }
     }
 
@@ -661,11 +665,7 @@
       return true;
     });
 
-    term.onData((data) => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(data);
-      }
-    });
+    term.onData(insertPtyText);
 
     // Handle terminal-driven resize (rare but good)
     term.onResize(({ cols, rows }) => {

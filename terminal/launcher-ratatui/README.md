@@ -51,14 +51,14 @@ Selection is a full-width surface with a `▌` accent bar. Workspaces paint firs
 - `esc`: clear filter, or close launcher when filter is empty
 - `up/down`: choose workspace
 - `tab` or `left/right`: choose app
-- `1`: Grok
+- `1`: Claude
 - `2`: Codex
-- `3`: Pi
-- `4`: Cursor (runs `agent` / cursor-agent CLI)
-- `5`: Claude
-- `6`: Amp
-- `7`: Devin
-- `8`: Droid
+- `3`: Cursor (runs `agent` / cursor-agent CLI)
+- `4`: Grok
+- `5`: Pi
+- `6`: Devin
+- `7`: Droid
+- `8`: Amp
 - `9`: Shell
 - `enter`: open
 - `.` (filter empty): resume last workspace + agent

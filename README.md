@@ -2,7 +2,7 @@
 
 **A real local terminal in a browser tab** — plus a launcher for workspaces and coding agents.
 
-Open a tab. Get a full PTY. Pick a workspace. Launch Claude, Codex, Pi, Cursor, Grok, Amp, Devin, Droid, or a plain shell.
+Open a tab. Get a full PTY. Pick a workspace. Launch Claude, Codex, Cursor, Grok, Pi, Devin, Droid, Amp, or a plain shell.
 
 > T-0 — countdown done. Workspaces in, agents out.
 
@@ -119,14 +119,14 @@ Demo mode (`MC_DEMO=1 t0` / `MC_MOCK=1`) uses the **same section order** with fa
 
 | Key | App |
 |-----|-----|
-| 1 | Grok |
+| 1 | Claude |
 | 2 | Codex |
-| 3 | Pi |
-| 4 | Cursor (agent CLI) |
-| 5 | Claude |
-| 6 | Amp |
-| 7 | Devin |
-| 8 | Droid |
+| 3 | Cursor (agent CLI) |
+| 4 | Grok |
+| 5 | Pi |
+| 6 | Devin |
+| 7 | Droid |
+| 8 | Amp |
 | 9 | Shell |
 
 Missing CLIs are **dimmed**. **Hover** a dim chip (or press its number / enter) to **install** npm-backed agents (Codex, Claude, Pi) when a recipe is known. Script-based installers need `MC_ALLOW_SCRIPT_INSTALL=1`.

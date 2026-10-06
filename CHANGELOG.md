@@ -2,10 +2,26 @@
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-10-06
+
+### Agents
+- New chip / number-key order: **1 Claude · 2 Codex · 3 Cursor · 4 Grok · 5 Pi · 6 Devin · 7 Droid · 8 Amp · 9 Shell** (number keys changed; saved favorites and per-workspace agents are unaffected)
+- New Project headless init defaults to the first installed agent in that order (was: Grok first)
+- Quitting `t0` drops into a plain shell in the last folder (with a hint to run `t0` to reopen) instead of a dead `[shell exited]` screen that respawned the launcher on the next keypress
+
+### PTY broker
+- Steady output (`yes`, big `cat`, build logs) no longer stalls until it pauses — output coalescing has a 32 ms / 64 KB cap
+- A shell that exits and respawns stays reachable on reload (no orphaned PTY)
+- Keystrokes travel as binary frames, so typed or pasted JSON is never mistaken for a resize/start message
+- Backpressure: a slow or background tab is resynced (reset + history replay) or reconnected instead of growing memory without bound
+- Input that arrives before the PTY exists is queued and written in order (replaces an 80 ms timer)
+- Broker session logic split into `terminal/pty-session.mjs` with `node --test` coverage (`bun run check:broker`, also in CI)
+
 ### Site
 - Public landing page is the `t0` pad (mono chrome, agent chips, list rows, keys) instead of a marketing brochure
 - Canonical URL / homepage is https://t-0.dev
 - Agentation toolbar and MCP are local-dev only on the website (`bun run site:dev`); not on production t-0.dev or the product terminal
+- Install row / <kbd>i</kbd> copies the curl one-liner
 
 ## [0.3.0] — 2026-08-04
 
