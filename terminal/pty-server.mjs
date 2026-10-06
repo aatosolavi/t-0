@@ -264,7 +264,8 @@ function spawnPtyForSession(session, cols, rows, requestedCwd, uiTheme) {
   session.pendingRows = Math.max(1, rows);
 
   const normalizedCwd = normalizeCwd(requestedCwd);
-  const useLauncher = LAUNCHER_ENABLED && !normalizedCwd;
+  // After the user quits t0, later spawns in this session are a plain shell.
+  const useLauncher = LAUNCHER_ENABLED && !normalizedCwd && !session.launcherClosed;
   const command = useLauncher ? LAUNCHER_PATH : SHELL;
   const args = useLauncher ? [] : [];
   const cwd = normalizedCwd && isDirectory(normalizedCwd) ? normalizedCwd : readLastCwd();
@@ -312,7 +313,21 @@ function spawnPtyForSession(session, cols, rows, requestedCwd, uiTheme) {
       broadcast(session, data);
     });
 
+    const exitedProcess = session.ptyProcess;
     session.ptyProcess.onExit(({ exitCode, signal }) => {
+      // Quitting the launcher drops straight into a shell in the last folder
+      // instead of a dead "[shell exited]" screen.
+      if (useLauncher && session.clients.size > 0 && session.ptyProcess === exitedProcess) {
+        const hint = "\r\n\x1b[2m[t0 closed — this is a plain shell. Run t0 to reopen the launcher.]\x1b[0m\r\n";
+        appendHistory(session, hint);
+        broadcast(session, hint);
+        session.launcherClosed = true;
+        session.stopCwdTracking?.();
+        session.stopCwdTracking = null;
+        session.ptyProcess = null;
+        spawnPtyForSession(session, session.pendingCols, session.pendingRows);
+        return;
+      }
       const message = `\r\n[shell exited${signal ? ` (signal ${signal})` : ""} code ${exitCode}]\r\n`;
       appendHistory(session, message);
       broadcast(session, message);

@@ -73,6 +73,7 @@ The browser page stays a terminal surface. Workspace/app selection lives in a na
 - The PTY broker automatically starts the installed binary when it exists.
 - If the binary is missing, the broker falls back to the normal login shell.
 - Set `MC_USE_LAUNCHER=0` (or `GROK_TERMINAL_USE_LAUNCHER=0`) to force shell-first behavior.
+- Quitting the launcher (`esc` with an empty filter) leaves a plain shell in the last folder; run `t0` there to reopen it, or open a new tab.
 
 The TUI scans `MC_WORKSPACE_ROOT` (default `~/dev` or `$HOME`), shows repos centered in the terminal, and supports keyboard and mouse input through terminal events. App choices include **Claude**, **Codex**, **Cursor**, **Grok**, **Pi**, **Devin**, **Droid**, **Amp**, and **Shell** (keys `1`–`9`, or Tab). Missing CLIs are dimmed; **hover** (or enter / number key) starts a background install with a progress bar under the panel when a recipe is known.
 

@@ -7,6 +7,7 @@
 ### Agents
 - New chip / number-key order: **1 Claude · 2 Codex · 3 Cursor · 4 Grok · 5 Pi · 6 Devin · 7 Droid · 8 Amp · 9 Shell** (number keys changed; saved favorites and per-workspace agents are unaffected)
 - New Project headless init defaults to the first installed agent in that order (was: Grok first)
+- Quitting `t0` drops into a plain shell in the last folder (with a hint to run `t0` to reopen) instead of a dead `[shell exited]` screen that respawned the launcher on the next keypress
 
 ### PTY broker
 - Steady output (`yes`, big `cat`, build logs) no longer stalls until it pauses — output coalescing has a 32 ms / 64 KB cap
