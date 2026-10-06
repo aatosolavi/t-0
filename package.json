@@ -1,6 +1,6 @@
 {
   "name": "@aatosolavi/t-0",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "T-0 — browser terminal + agent launcher (real local PTY in a tab)",
   "license": "MIT",
   "type": "module",
@@ -20,6 +20,7 @@
     "terminal/launcher-ratatui/src/",
     "terminal/package-root.mjs",
     "terminal/pty-server.mjs",
+    "terminal/pty-session.mjs",
     "terminal/server.ts",
     "terminal/start.mjs",
     "terminal/vendor.ts",
@@ -47,8 +48,9 @@
     "typecheck": "tsc -p tsconfig.json",
     "check:shell": "bash -n install.sh && bash -n terminal/install-launch-agent.sh",
     "check:data-dir": "node --input-type=module -e \"import { modernDataDir, dataDir } from './terminal/data-dir.mjs'; if (!modernDataDir().endsWith('.t-0')) process.exit(1); dataDir(); console.log('data-dir ok')\"",
+    "check:broker": "node --test terminal/pty-session.test.mjs",
     "check:rust": "rustup run stable cargo check --locked --manifest-path terminal/launcher-ratatui/Cargo.toml",
-    "check": "bun run terminal:vendor:build && bun run typecheck && bun run check:shell && bun run check:data-dir && bun run check:rust",
+    "check": "bun run terminal:vendor:build && bun run typecheck && bun run check:shell && bun run check:data-dir && bun run check:broker && bun run check:rust",
     "prepublishOnly": "bun run terminal:vendor:build && bun run typecheck"
   },
   "engines": {

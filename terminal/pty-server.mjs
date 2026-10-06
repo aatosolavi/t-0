@@ -16,6 +16,16 @@ import { dirname, join } from "node:path";
 import process from "node:process";
 import { WebSocketServer } from "ws";
 import { dataDir } from "./data-dir.mjs";
+import {
+  appendHistory,
+  broadcast,
+  classifyMessage,
+  flushPendingInput,
+  forgetSession,
+  getSession,
+  rebindSession,
+  replayHistory,
+} from "./pty-session.mjs";
 
 const PORT = Number(process.env.MC_PTY_PORT || process.env.PORT || 4322);
 const HOST = process.env.MC_BIND_HOST || "127.0.0.1";
@@ -75,12 +85,6 @@ const SESSION_RETAIN_MS = Number(
     process.env.GROK_TERMINAL_SESSION_RETAIN_MS ||
     6 * 60 * 60 * 1000,
 );
-const SESSION_HISTORY_LIMIT = Number(
-  process.env.MC_SESSION_HISTORY_LIMIT ||
-    process.env.GROK_TERMINAL_SESSION_HISTORY_LIMIT ||
-    2_000_000,
-);
-
 const sessions = new Map();
 
 if (HOST !== "127.0.0.1" && HOST !== "localhost" && HOST !== "::1") {
@@ -216,84 +220,6 @@ function startCwdTracking(session, ptyProcess) {
   return () => clearInterval(interval);
 }
 
-function normalizeSessionId(value) {
-  const raw = typeof value === "string" && value.trim() ? value.trim() : "default";
-  return raw.replace(/[^a-zA-Z0-9._:-]+/g, "-").slice(0, 120) || "default";
-}
-
-// P4: chunk list instead of string += (avoids quadratic copy near the 2MB cap).
-// Chunks are whole PTY writes — safer cut points than mid-ANSI byte offsets
-// (replaces the old trimHistoryForReplay heuristic).
-// Coalesce small writes (interactive echo is often 1 byte) so replay is not
-// tens of thousands of websocket frames; only front-drops matter for ANSI safety.
-const HISTORY_COALESCE_MAX = 4096;
-
-function appendHistory(session, data) {
-  if (typeof data !== "string" || data.length === 0) return;
-  if (!session.chunks) {
-    session.chunks = [];
-    session.bytes = 0;
-  }
-  const last = session.chunks[session.chunks.length - 1];
-  if (last != null && last.length < HISTORY_COALESCE_MAX) {
-    session.chunks[session.chunks.length - 1] = last + data;
-  } else {
-    session.chunks.push(data);
-  }
-  session.bytes += data.length;
-  while (session.bytes > SESSION_HISTORY_LIMIT && session.chunks.length > 1) {
-    session.bytes -= session.chunks.shift().length;
-  }
-}
-
-function replayHistory(session, ws) {
-  if (!session.chunks || session.chunks.length === 0) return;
-  // Join into fewer websocket frames so xterm paints one big write, not N×1KB.
-  const MAX = 64 * 1024;
-  let buf = "";
-  for (const chunk of session.chunks) {
-    if (buf.length > 0 && buf.length + chunk.length > MAX) {
-      sendToClient(ws, buf);
-      buf = "";
-    }
-    buf += chunk;
-  }
-  if (buf) sendToClient(ws, buf);
-}
-
-function sendToClient(ws, data) {
-  if (ws.readyState === 1) {
-    ws.send(data);
-  }
-}
-
-// node-pty often emits large draws as many ~1KB onData callbacks with gaps
-// between groups. Debounce so one ratatui frame ≈ one websocket write.
-// Large in-flight buffers keep a slightly longer window; tiny echo stays tight.
-const OUT_COALESCE_MS_SMALL = 4;
-const OUT_COALESCE_MS_LARGE = 16;
-const OUT_COALESCE_LARGE_AT = 4096;
-
-function broadcast(session, data) {
-  if (typeof data !== "string" || data.length === 0) return;
-  session.outBuf = (session.outBuf || "") + data;
-  if (session.outFlushTimer != null) clearTimeout(session.outFlushTimer);
-  const delay =
-    session.outBuf.length >= OUT_COALESCE_LARGE_AT
-      ? OUT_COALESCE_MS_LARGE
-      : OUT_COALESCE_MS_SMALL;
-  session.outFlushTimer = setTimeout(() => {
-    session.outFlushTimer = null;
-    const buf = session.outBuf;
-    session.outBuf = "";
-    if (!buf) return;
-    for (const client of session.clients) {
-      sendToClient(client, buf);
-    }
-  }, delay);
-  session.outFlushTimer.unref?.();
-}
-
 function scheduleSessionCleanup(session) {
   if (session.killTimer || session.clients.size > 0 || !session.ptyProcess) return;
   session.killTimer = setTimeout(() => {
@@ -321,29 +247,7 @@ function destroySession(session) {
     } catch {}
     session.ptyProcess = null;
   }
-  sessions.delete(session.id);
-}
-
-function getSession(id) {
-  const sessionId = normalizeSessionId(id);
-  let session = sessions.get(sessionId);
-  if (!session) {
-    session = {
-      id: sessionId,
-      clients: new Set(),
-      chunks: [],
-      bytes: 0,
-      lastDataAt: 0,
-      ptyProcess: null,
-      stopCwdTracking: null,
-      killTimer: null,
-      pendingCols: 80,
-      pendingRows: 24,
-      exited: false,
-    };
-    sessions.set(sessionId, session);
-  }
-  return session;
+  forgetSession(sessions, session);
 }
 
 function normalizeUiTheme(value) {
@@ -400,6 +304,7 @@ function spawnPtyForSession(session, cols, rows, requestedCwd, uiTheme) {
     });
     session.exited = false;
     session.stopCwdTracking = startCwdTracking(session, session.ptyProcess);
+    flushPendingInput(session);
 
     session.ptyProcess.onData((data) => {
       session.lastDataAt = Date.now();
@@ -417,6 +322,7 @@ function spawnPtyForSession(session, cols, rows, requestedCwd, uiTheme) {
   } catch (err) {
     const message = `\r\n[failed to spawn shell: ${err.message}]\r\n`;
     console.error("[PTY Broker] Failed to spawn PTY:", err);
+    session.pendingInput = [];
     appendHistory(session, message);
     broadcast(session, message);
     destroySession(session);
@@ -440,86 +346,87 @@ wss.on("connection", (ws, req) => {
   let session = null;
   let startRequested = false;
 
-  ws.on("message", (raw) => {
-    const text = raw.toString();
+  function detach() {
+    if (!session) return;
+    session.clients.delete(ws);
+    session.lagging.delete(ws);
+    scheduleSessionCleanup(session);
+  }
 
-    // Resize control messages from the browser
-    if (text.startsWith("{")) {
+  function handleControl(msg) {
+    if (msg.type === "start") {
+      const next = getSession(sessions, msg.sessionId);
+      if (session && session !== next) detach();
+      session = next;
+      cancelSessionCleanup(session);
+      session.clients.add(ws);
+
+      const cols = typeof msg.cols === "number" ? msg.cols : session.pendingCols;
+      const rows = typeof msg.rows === "number" ? msg.rows : session.pendingRows;
+      const cwd = typeof msg.cwd === "string" ? msg.cwd : undefined;
+      const theme = normalizeUiTheme(msg.theme);
+      if (theme) session.uiTheme = theme;
+      startRequested = true;
+      replayHistory(session, ws);
+      spawnPtyForSession(session, cols, rows, cwd, theme);
+      return;
+    }
+
+    // resize
+    if (!session) return;
+    session.pendingCols = Math.max(1, msg.cols);
+    session.pendingRows = Math.max(1, msg.rows);
+    if (session.ptyProcess) {
       try {
-        const msg = JSON.parse(text);
-        if (msg.type === "start") {
-          session = getSession(msg.sessionId);
-          cancelSessionCleanup(session);
-          session.clients.add(ws);
-
-          const cols = typeof msg.cols === "number" ? msg.cols : session.pendingCols;
-          const rows = typeof msg.rows === "number" ? msg.rows : session.pendingRows;
-          const cwd = typeof msg.cwd === "string" ? msg.cwd : undefined;
-          const theme = normalizeUiTheme(msg.theme);
-          if (theme) session.uiTheme = theme;
-          startRequested = true;
-          replayHistory(session, ws);
-          spawnPtyForSession(session, cols, rows, cwd, theme);
-          return;
-        }
-
-        if (msg.type === "resize" && typeof msg.cols === "number" && typeof msg.rows === "number") {
-          if (!session) return;
-          session.pendingCols = Math.max(1, msg.cols);
-          session.pendingRows = Math.max(1, msg.rows);
-          if (session.ptyProcess) {
-            try {
-              session.ptyProcess.resize(session.pendingCols, session.pendingRows);
-            } catch (e) {
-              console.error("[PTY Broker] resize error:", e.message);
-            }
-          }
-          return;
-        }
-      } catch {
-        // not json, fall through
+        session.ptyProcess.resize(session.pendingCols, session.pendingRows);
+      } catch (e) {
+        console.error("[PTY Broker] resize error:", e.message);
       }
+    }
+  }
+
+  ws.on("message", (raw, isBinary) => {
+    const frame = classifyMessage(raw, isBinary);
+    if (frame.kind === "control") {
+      handleControl(frame.msg);
+      return;
+    }
+
+    // No live PTY: input before `start` (spawn with defaults), or the shell
+    // exited and a keypress respawns it.
+    if (!session?.ptyProcess) {
+      startRequested = true;
+      session = session ? rebindSession(sessions, session, ws) : getSession(sessions, "default");
+      cancelSessionCleanup(session);
+      session.clients.add(ws);
     }
 
     // Normal user input → write to the real shell
-    if (session?.ptyProcess) {
+    if (session.ptyProcess) {
       try {
-        session.ptyProcess.write(text);
+        session.ptyProcess.write(frame.text);
       } catch (e) {
         console.error("[PTY Broker] write error:", e.message);
       }
-    } else {
-      // Client sent input before telling us the size → spawn with defaults
-      startRequested = true;
-      session = session || getSession("default");
-      cancelSessionCleanup(session);
-      session.clients.add(ws);
-      spawnPtyForSession(session, session.pendingCols, session.pendingRows);
-      // Give it a moment then write
-      setTimeout(() => {
-        if (session?.ptyProcess) session.ptyProcess.write(text);
-      }, 80);
+      return;
     }
+
+    // Queue so nothing races the spawn; flushed right after pty.spawn.
+    session.pendingInput.push(frame.text);
+    spawnPtyForSession(session, session.pendingCols, session.pendingRows);
   });
 
   ws.on("close", () => {
     console.log("[PTY Broker] Client disconnected");
-    if (session) {
-      session.clients.delete(ws);
-      scheduleSessionCleanup(session);
-    }
+    detach();
   });
 
-  ws.on("error", () => {
-    if (session) {
-      session.clients.delete(ws);
-      scheduleSessionCleanup(session);
-    }
-  });
+  ws.on("error", detach);
 
   // If the client never sends a resize, still give them a shell after a short delay
   setTimeout(() => {
     if (session && !session.ptyProcess && startRequested && ws.readyState === 1) {
+      session = rebindSession(sessions, session, ws);
       spawnPtyForSession(session, session.pendingCols, session.pendingRows);
     }
   }, 400);

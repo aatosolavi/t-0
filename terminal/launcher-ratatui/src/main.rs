@@ -100,30 +100,31 @@ pub(crate) struct Repo {
     remembered_agent: Option<Action>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Action {
-    Grok,
-    Codex,
-    Pi,
-    Cursor,
     Claude,
-    Amp,
+    Codex,
+    Cursor,
+    Grok,
+    Pi,
     Devin,
     Droid,
+    Amp,
     Shell,
 }
 
 impl Action {
+    /// Chip / number-key order (1–9). Persisted state uses `id()`, not position.
     fn all() -> &'static [Action] {
         &[
-            Action::Grok,
-            Action::Codex,
-            Action::Pi,
-            Action::Cursor,
             Action::Claude,
-            Action::Amp,
+            Action::Codex,
+            Action::Cursor,
+            Action::Grok,
+            Action::Pi,
             Action::Devin,
             Action::Droid,
+            Action::Amp,
             Action::Shell,
         ]
     }
@@ -3109,21 +3110,15 @@ fn eligible_init_agents() -> Vec<Action> {
 }
 
 fn default_init_agent(settings: &SettingsFile) -> Option<Action> {
-    let eligible = eligible_init_agents();
-    if eligible.is_empty() {
-        return None;
-    }
-    if let Some(id) = settings.default_agent.as_deref() {
-        if let Some(action) = Action::from_id(id) {
-            if eligible.iter().any(|a| *a == action) {
-                return Some(action);
-            }
-        }
-    }
-    if eligible.iter().any(|a| *a == Action::Grok) {
-        return Some(Action::Grok);
-    }
-    Some(eligible[0])
+    pick_init_agent(&eligible_init_agents(), settings.default_agent.as_deref())
+}
+
+/// Configured default agent if installed, else the first installed one in chip order.
+fn pick_init_agent(eligible: &[Action], default_id: Option<&str>) -> Option<Action> {
+    default_id
+        .and_then(Action::from_id)
+        .filter(|action| eligible.contains(action))
+        .or_else(|| eligible.first().copied())
 }
 
 /// Split resolved command into program + argv prefix.
@@ -3220,5 +3215,38 @@ fn draw_help_overlay(frame: &mut Frame<'_>, _app: &App) {
         ]));
     }
     frame.render_widget(Paragraph::new(out), inner);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn agent_chip_order() {
+        let ids: Vec<&str> = Action::all().iter().map(|a| a.id()).collect();
+        assert_eq!(
+            ids,
+            ["claude", "codex", "cursor", "grok", "pi", "devin", "droid", "amp", "shell"]
+        );
+    }
+
+    #[test]
+    fn init_agent_prefers_installed_default() {
+        let eligible = [Action::Claude, Action::Grok];
+        assert_eq!(pick_init_agent(&eligible, Some("grok")), Some(Action::Grok));
+    }
+
+    #[test]
+    fn init_agent_falls_back_to_first_in_order() {
+        let eligible = [Action::Codex, Action::Grok];
+        assert_eq!(pick_init_agent(&eligible, None), Some(Action::Codex));
+        // Default not installed → first eligible, not the default.
+        assert_eq!(pick_init_agent(&eligible, Some("claude")), Some(Action::Codex));
+    }
+
+    #[test]
+    fn init_agent_none_when_nothing_installed() {
+        assert_eq!(pick_init_agent(&[], Some("claude")), None);
+    }
 }
 

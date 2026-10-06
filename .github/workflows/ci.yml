@@ -39,6 +39,9 @@ jobs:
       - name: data-dir module smoke
         run: bun run check:data-dir
 
+      - name: PTY broker tests
+        run: bun run check:broker
+
   rust:
     name: Rust launcher
     runs-on: ubuntu-latest

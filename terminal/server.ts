@@ -38,6 +38,9 @@ const ALLOWED_ORIGINS = new Set(
 );
 const PTY_PORT = Number(process.env.MC_PTY_PORT || 4322);
 const PTY_URL = `ws://127.0.0.1:${PTY_PORT}`;
+// A browser tab further behind than this is dropped; it reconnects and the
+// broker replays history, which is bounded (unlike this buffer).
+const MAX_CLIENT_BUFFERED = 8 * 1024 * 1024;
 
 function resolveDataDir(): string {
   return dataDir();
@@ -222,12 +225,19 @@ const server = Bun.serve({
       const broker = new WebSocket(PTY_URL, {
         headers: { origin: `http://127.0.0.1:${PORT}` },
       } as any);
+      broker.binaryType = "arraybuffer";
       ws.data.broker = broker;
       broker.onopen = () => {
         for (const msg of ws.data.pending) broker.send(msg);
         ws.data.pending.length = 0;
       };
-      broker.onmessage = (event) => ws.send(event.data);
+      broker.onmessage = (event) => {
+        if (ws.getBufferedAmount() > MAX_CLIENT_BUFFERED) {
+          ws.close(1013, "client too slow");
+          return;
+        }
+        ws.send(event.data);
+      };
       broker.onclose = () => ws.close();
       broker.onerror = () => ws.close();
     },
